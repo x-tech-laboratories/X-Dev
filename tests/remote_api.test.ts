@@ -42,6 +42,8 @@ function fake_runner() {
     sign_out_github: vi.fn(),
     get_item_diff: vi.fn(),
     list_run_changes: vi.fn(async () => ({})),
+    add_item: vi.fn(async () => ({ id: "item-1", repository: "x-tech-laboratories/X-Dev", issue: { number: 12, opened: true }, checkout_added: false, problem: "" })),
+    take_proposal: vi.fn(),
   } satisfies Record<keyof RunnerMethods, unknown>;
 }
 
@@ -115,19 +117,6 @@ describe("the runner over the network", () => {
     expect(paths).toContain("/api/runner/start_run");
     expect(paths).toContain("/api/stages/save_stage");
     expect(paths).toContain("/api/call/list_items");
-  });
-
-  it("keeps the runner out of MCP", async () => {
-    const { admin } = await start(fake_runner());
-
-    const reply = await admin({
-      method: "POST",
-      url: "/api/mcp",
-      headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-06-18" },
-      payload: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
-    });
-    expect(reply.body).toContain("list_items");
-    expect(reply.body).not.toContain("start_run");
   });
 
   it("lets a phone's page call across origins, the sign-in included", async () => {

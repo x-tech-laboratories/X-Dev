@@ -19,6 +19,7 @@ import { checkout_state, run_gates } from "./gates.ts";
 import { done, type Stage, type StagesMethods } from "../shared/stages/model.ts";
 import { find_or_open_issue, github_account, github_sign_out, start_github_sign_in } from "./github.ts";
 import type { GitHubSync } from "./github_sync.ts";
+import { create_item_calls } from "./item_calls.ts";
 import { tools_guide, type RunTools } from "./run_tools.ts";
 
 // ── Options ──────────────────────────────────────────────────────────────────
@@ -300,7 +301,16 @@ export function create_runner({ database, stages, run_tools, folder, after_write
     return run_id;
   }
 
+  // Adding an item and taking a proposal need the runner's checkouts and issues, so they are its calls too.
+  const item_calls = create_item_calls({
+    database,
+    after_write,
+    runner: { get_runner: () => methods.get_runner(), add_repository: (checkout) => methods.add_repository(checkout), link_issue: (id) => methods.link_issue(id) },
+  });
+
   const methods: RunnerMethods = {
+    add_item: (input) => item_calls.add_item(input),
+    take_proposal: (id) => item_calls.take_proposal(id),
     get_runner: () => ({ settings: read_settings(), running_run_id: current?.run_id ?? null }),
     set_runner_setting: (key, value) => {
       write_settings(read_runner_settings({ ...read_settings(), [key]: value }));

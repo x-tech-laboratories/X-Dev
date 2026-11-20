@@ -138,7 +138,7 @@ function data_category(): SettingsCategory[] {
       : []),
     ...(desktop || phone_kinds ? [{ id: "notifications", heading: "Notifications", hint: phone_kinds ? "What this phone tells you about runs while X-Dev is open or in the background; tapping one opens the item." : "What this computer tells you about runs while X-Dev is closed or out of sight; clicking one opens the item.", content: <Notifications /> }] : []),
     ...(local_mcp
-      ? [{ id: "mcp", heading: "MCP server", hint: "Let AI assistants such as Claude Code reach this device's data without the server.", content: <LocalMcpSettings device={local_mcp} name="x-dev" data_name="read and change your items" /> }]
+      ? [{ id: "mcp", heading: "MCP server", hint: "Let AI assistants such as Claude Code on this computer add items and work every control, starting agent runs included, without the server.", content: <LocalMcpSettings device={local_mcp} name="x-dev" data_name="add and change your items and start agent runs" /> }]
       : []),
     ...(desktop ? [{ id: "desktop", heading: "Desktop", hint: "The tray icon, and what runs while the window is closed.", content: <Desktop /> }] : []),
   ];

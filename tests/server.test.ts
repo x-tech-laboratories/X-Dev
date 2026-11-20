@@ -117,7 +117,7 @@ describe("server", () => {
     await start();
     const listed = await mcp("tools/list");
     const tools = listed.tools as { name: string; annotations: { readOnlyHint: boolean } }[];
-    expect(tools.map((tool) => tool.name).sort()).toEqual([...method_names].sort());
+    expect(tools.map((tool) => tool.name).sort()).toEqual([...method_names, ...stages_method_names].sort());
     expect(tools.find((tool) => tool.name === "list_items")!.annotations.readOnlyHint).toBe(true);
     expect(tools.find((tool) => tool.name === "save_item")!.annotations.readOnlyHint).toBe(false);
 

@@ -178,7 +178,7 @@ add and describe items, start a run, answer a waiting run, send an item back, di
 edit stage files, and add checkouts by typing their path. It cannot change which `claude` and `gh` programs the daemon
 starts or how freely their actions are approved, which change only on that computer; signing `gh` in from elsewhere
 gives the code to enter on GitHub's device page from that device. A user who is not an admin sees and edits items but
-starts no runs and changes no stages. The MCP endpoint serves the data calls, not the runner's.
+starts no runs and changes no stages. Its MCP endpoint offers the same, as [Other programs](#other-programs-the-api-and-mcp) sets out.
 
 A run started on one computer is answered, stopped and discarded only through the daemon that started it, which holds
 its worktree and session; a copy that synced the run says so when asked.
@@ -219,25 +219,42 @@ Changes older than **Settings → General → History** (180 days unless set) ar
 
 ## Other programs: the API and MCP
 
-Every call the page makes is open to other programs on the server, behind a token made on **Your account** and sent as
+Every control of the page is open to other programs, such as another Claude Code session, on the server and on a desktop
+daemon that lets other devices connect, behind a token made on **Your account** and sent as
 `Authorization: Bearer <token>`:
 
-- **API:** `POST /api/call/<method>` with the arguments as a JSON list in order, or by name as a JSON object.
-  `GET /api/openapi.json` describes every call.
-- **MCP:** `/api/mcp` serves every call as a tool over streamable HTTP, the calls that only read marked read-only. To
-  add it to Claude Code:
+- **API:** `POST /api/call/<method>` for the data, `/api/stages/<method>` for the stage files and `/api/runner/<method>`
+  for runs, checkouts and GitHub, with the arguments as a JSON list in order; the data calls also take them by name as a
+  JSON object. `GET /api/openapi.json` describes every call.
+- **MCP:** `/api/mcp` serves every call as a tool over streamable HTTP, the calls that only read marked read-only. A
+  session adds an item with `add_item`, which also adds a checkout given by its path and finds or opens the GitHub issue,
+  as the New item form does; `describe_item` turns a rough note into a draft for it first. The tools that start or undo
+  an agent's work (`start_run`, `answer_run`, `discard_run`) or change the computer that runs the agents (`add_repository`,
+  `save_stage` and the other stage tools) say so in their descriptions.
 
-  ```sh
-  claude mcp add --transport http x-dev https://<server>/api/mcp --header "Authorization: Bearer <token>"
-  ```
+What a token reaches is what its user reaches: an admin's every tool, another user's the data tools alone (adding,
+editing and closing items with `save_item`, but no runs, stages, checkouts or GitHub), and a token made read-only on
+**Your account** only the tools that read. Tokens have no narrower scope, such as adding items only. Wherever
+it is reached from, the runner refuses to change `claude_program`, `gh_program` or the permission mode, which change
+only in X-Dev's own window on the computer that runs the agents.
 
-The desktop app can serve the same MCP tools itself, on its own data and with no server or token: turn on **Settings →
-MCP server**, and while its daemon runs it listens on `http://127.0.0.1:3921/mcp` (the port is set there too), reachable
-only from the same computer:
+To add the server to Claude Code:
+
+```sh
+claude mcp add --transport http x-dev https://<server>/api/mcp --header "Authorization: Bearer <token>"
+```
+
+The desktop app can serve the same tools itself, on its own data and with no token: turn on **Settings → MCP server**,
+and while its daemon runs it listens on `http://127.0.0.1:3921/mcp` (the port is set there too), reachable only from
+the same computer. Every program on this computer can then start agent runs through it, so leave it off on a computer
+other people sign in to.
 
 ```sh
 claude mcp add --transport http x-dev http://127.0.0.1:3921/mcp
 ```
+
+On a computer with a managed MCP config (`/etc/claude-code/managed-mcp.json`), Claude Code refuses `claude mcp add`;
+add the server to that file instead, under `mcpServers`, with the same `type`, `url` and `headers`.
 
 A change made through either reaches every open page and device as if made there.
 

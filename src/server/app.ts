@@ -24,10 +24,10 @@ import { runner_api } from "../shared/runs/api.ts";
 import { stages_api } from "../shared/stages/api.ts";
 import type { StagesMethods } from "../shared/stages/model.ts";
 
-import { dev_bridge } from "../shared/bridge.ts";
-import { mcp_instructions as instructions, without_secrets } from "../shared/mcp.ts";
-import { bind_methods, dev_api, is_read_only, sync_engine } from "../shared/store.ts";
+import { mcp_instructions as instructions } from "../shared/mcp.ts";
+import { dev_api, is_read_only, sync_engine } from "../shared/store.ts";
 import { register_dev_calls } from "./calls.ts";
+import { create_mcp_call, is_admin_tool, mcp_api } from "./mcp_calls.ts";
 import { remote_runner } from "./remote_runner.ts";
 
 // ── Options ──────────────────────────────────────────────────────────────────
@@ -76,6 +76,7 @@ export async function build_app(options: AppOptions): Promise<FastifyInstance> {
 
   const changes = options.changes ?? new EventStream();
   const database = () => options.database;
+  const mcp_call = create_mcp_call({ database, announce: () => changes.announce_change(), stages: options.stages, runner: options.runner });
 
   await app.register(
     async (api) => {
@@ -98,11 +99,12 @@ export async function build_app(options: AppOptions): Promise<FastifyInstance> {
         name: "x-dev",
         version,
         instructions,
-        api: dev_api,
+        api: mcp_api(options.runner !== undefined),
         is_read_only,
-        call: async (method, args) => {
-          const methods = bind_methods(database, () => changes.announce_change());
-          return without_secrets(method, await dev_bridge.dispatch(methods, method, args));
+        // The stage and runner tools need an admin, as their routes do.
+        call: async (method, args, request) => {
+          if (is_admin_tool(method) && !(request.viewer !== null && accounts.has_role(request.viewer.role, accounts.top_role))) throw new Error(`${method} needs an admin's token`);
+          return mcp_call(method, args);
         },
       });
 

@@ -39,8 +39,7 @@ database, event stream, backups, stages and runner. Its settings and admins are 
 
 `build_app` signs every request in through X-Libs `server/account_sign_in` and lets only the top role reach
 `/api/backup/`, `/api/stages/` and `/api/runner/`. The runner's calls each have a spec in `runner_api`
-(`src/shared/runs/api.ts`) and the stage files' in `stages_api`, both in `/api/openapi.json`; MCP serves only the data
-calls. `src/server/remote_runner.ts` refuses, from any caller on the network, the settings that name the programs X-Dev
+(`src/shared/runs/api.ts`) and the stage files' in `stages_api`, both in `/api/openapi.json` and as MCP tools, `src/server/mcp_calls.ts` serving them on the server and on the daemon's local endpoint alike, the stage and runner tools to an admin only. `add_item` (`src/server/item_calls.ts`) is the New item form's save as one call: the checkout added, the item saved and its issue found or opened. `src/server/remote_runner.ts` refuses, from the network and from MCP, the settings that name the programs X-Dev
 starts and the permission mode. `GET /api/abilities` tells a page whether it may start runs and change stages. CORS is
 open, as the phone calls from a page of its own with a token. The run tools' own server stays on 127.0.0.1 with a
 token per run, and is never reached through any of this.

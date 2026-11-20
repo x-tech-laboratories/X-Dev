@@ -23,12 +23,12 @@ import { create_sync_client, sync_device_methods } from "@x-tech-laboratories/x-
 import { file_sync_storage } from "@x-tech-laboratories/x-libs/sync_file_storage";
 
 import { dev_backup_naming, read_schedule } from "../shared/backups.ts";
-import { dev_bridge } from "../shared/bridge.ts";
 import { read_desktop_settings, type DaemonMethods, type DesktopSettings } from "../shared/desktop.ts";
-import { mcp_instructions, without_secrets } from "../shared/mcp.ts";
+import { mcp_instructions } from "../shared/mcp.ts";
 import type { DeviceMethods } from "../shared/page_api.ts";
-import { bind_methods, dev_api, is_read_only, needs_upgrade, open_store, sync_engine } from "../shared/store.ts";
+import { is_read_only, needs_upgrade, open_store, sync_engine } from "../shared/store.ts";
 import { build_app } from "../server/app.ts";
+import { create_mcp_call, mcp_api } from "../server/mcp_calls.ts";
 import { register_dev_calls } from "../server/calls.ts";
 import { create_github_sync } from "../server/github_sync.ts";
 import { create_run_tools } from "../server/run_tools.ts";
@@ -125,11 +125,11 @@ const local_mcp = create_local_mcp({
   name: "x-dev",
   version,
   instructions: mcp_instructions,
-  api: dev_api,
+  api: mcp_api(true),
   is_read_only,
   settings_file: join(profile, "mcp.json"),
   default_port: 3921,
-  call: async (method, args) => without_secrets(method, await dev_bridge.dispatch(bind_methods(() => database, announce_change), method, args)),
+  call: (method, args) => mcp_call(method, args),
 });
 
 // ── Stages ─────────────────────────────────────────────────────────────────
@@ -167,6 +167,9 @@ const github = create_github_sync({
   stage_label: (id) => stage_files.methods.list_stages().stages.find((stage) => stage.id === id)?.label ?? id,
 });
 const runner = create_runner({ database: () => database, stages: stage_files.methods, run_tools, folder: profile, after_write: after_run_write, github });
+
+// The local MCP endpoint offers every control, the runner's through the same refusals as any caller from elsewhere.
+const mcp_call = create_mcp_call({ database: () => database, announce: announce_change, stages: stage_files.methods, runner: runner.methods });
 
 // ── Desktop settings ─────────────────────────────────────────────────────────
 

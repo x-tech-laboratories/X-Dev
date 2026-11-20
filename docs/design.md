@@ -358,6 +358,9 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 - The phone's and browser's calls to a daemon, its event stream, the first-connection screen, the Connections and
   Other devices settings and phone notices are tested in jsdom against stand-ins; the desktop app's switch between
   daemons and its notices for a daemon elsewhere are not covered by tests.
+- Every control is an MCP tool on the server and on the daemon's local endpoint; adding an item from a checkout's
+  folder, opening its issue, starting its run and answering its question are tested through the MCP endpoints
+  themselves, with stand-ins for `claude` and `gh`.
 
 ## Checked for milestone 5
 
