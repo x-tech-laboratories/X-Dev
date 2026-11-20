@@ -473,6 +473,7 @@ main:not(:has(> .fills)) > .inbox-panel {
 
 .transcript-answer > input {
   width: 100%;
+}
 
 /* A long payload URL breaks anywhere rather than widening a phone's page. */
 .webhook-url {

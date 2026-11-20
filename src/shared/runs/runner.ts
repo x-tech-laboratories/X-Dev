@@ -4,7 +4,9 @@
 
 import type { DiffFile, DiffFileStatus } from "../diff/parse.ts";
 import type { ItemInput } from "../items/model.ts";
+import type { Question } from "./model.ts";
 import type { RunMode } from "./modes.ts";
+import type { RunSnapshot } from "./notices.ts";
 import type { PermissionDecision } from "./transcript.ts";
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -115,6 +117,29 @@ export interface RunnerMethods {
   revert_file: (item_id: string, scope: ChangeScope, run_id: string, path: string) => Promise<void>;
   // The lines each finished run added and removed, by run id, for the runs whose worktree is on this computer.
   list_run_changes: (run_ids: string[]) => Promise<Record<string, LineCounts>>;
+  // The run once its state, waiting approvals or questions change, or as it is when the wait runs out.
+  get_run_update: (run_id: string, timeout_seconds: number) => Promise<RunUpdate>;
+}
+
+// The longest a caller may wait for a run to change in one call.
+export const longest_run_wait_seconds = 120;
+
+// A tool call a run waits on the user to allow or refuse, as answer_permission takes it.
+export interface PermissionRequest {
+  request_id: string;
+  tool: string;
+  // Its input, long fields cut.
+  input: Record<string, unknown>;
+  reason: string;
+}
+
+// A run as a program following it sees it: its snapshot, every question and every approval it waits on.
+export type WatchedRun = RunSnapshot & { questions: Question[]; permissions: PermissionRequest[] };
+
+export interface RunUpdate {
+  run: WatchedRun;
+  // False when the wait ran out with nothing changed.
+  changed: boolean;
 }
 
 // Whether changes count from the run's start or the item's.
@@ -238,4 +263,5 @@ export const runner_method_names = [
   "list_files",
   "get_file",
   "list_run_changes",
+  "get_run_update",
 ] as const satisfies readonly (keyof RunnerMethods)[];

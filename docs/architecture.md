@@ -40,7 +40,10 @@ database, event stream, backups, stages and runner. Its settings and admins are 
 `build_app` signs every request in through X-Libs `server/account_sign_in` and lets only the top role reach
 `/api/backup/`, `/api/stages/` and `/api/runner/`. The runner's calls each have a spec in `runner_api`
 (`src/shared/runs/api.ts`) and the stage files' in `stages_api`, both in `/api/openapi.json` and as MCP tools, `src/server/mcp_calls.ts` serving them on the server and on the daemon's local endpoint alike, the stage and runner tools to an admin only. `add_item` (`src/server/item_calls.ts`) is the New item form's save as one call: the checkout added, the item saved and its issue found or opened. `src/server/remote_runner.ts` refuses, from the network and from MCP, the settings that name the programs X-Dev
-starts and the permission mode. `GET /api/abilities` tells a page whether it may start runs and change stages. CORS is
+starts and the permission mode. The `AccountStore` offers one token scope, `add_items` (`token_scopes` in
+`src/server/app.ts`): such a token reads like a read-only one and may also call `add_item`. `register_accounts` is given
+`calls_under("/api/call", "/api/runner", "/api/stages")` and `is_read_only`, so read-only and scoped tokens may POST the
+calls that read and the scope's calls on the API, as X-Libs `server/mcp` lets them over MCP. `GET /api/abilities` tells a page whether it may start runs and change stages. CORS is
 open, as the phone calls from a page of its own with a token. The run tools' own server stays on 127.0.0.1 with a
 token per run, and is never reached through any of this.
 
@@ -52,8 +55,19 @@ connect, which always belong to this computer's daemon. Choosing another daemon 
 elsewhere it shows that daemon's notices itself with `watch_notices` in `src/shared/runs/notices.ts`, which reads
 `list_watched_runs` and the open items after each change event. The phone does the same while it is open or in the background, showing each at once through Capacitor's local notifications, keyed by X-Libs `notice_id`.
 
-A daemon's runner acts only on runs it started, which keep a folder under its `runs/`: a run that arrived by sync from
-another computer is not failed at start, answered, or discarded there.
+Only the daemon that started a run acts on it, its process, its session or its worktree; such a run keeps a folder under
+that daemon's `runs/`. A run that arrived by sync from another computer is not failed at start there, and every call that
+changes a run (`stop_run`, `interject_run`, `interrupt_run`, `set_run_mode`, `answer_permission`, `answer_run`,
+`retry_run`, `discard_run`, and `revert_file` on that run's changes) refuses it, saying it was started on another
+computer; `own_run` in `src/server/runner.ts` is that check. Reading a run works on any copy.
+
+A program following a run, such as the terminal's `/advance`, calls the runner's `get_run_update(run_id,
+timeout_seconds)`, which reads the run again every quarter second, each read a statement of its own and never a
+transaction, and answers once its state, the approvals it waits on or its questions change, or when the wait, at most
+two minutes, runs out. Its snapshot (`WatchedRun`) and the store's `list_permission_requests(run_id)` carry each waiting
+approval as `{request_id, tool, input, reason}`, read from the saved transcript only while `awaiting` names a tool;
+`lookup_item(repository, issue_number)` finds the item behind an issue. All three only read, so read-only and scoped tokens reach
+them too, `get_run_update` only with an admin's token, like the rest of the runner.
 
 The runner is one table: `RunnerMethods` and `runner_method_names` name its calls, `runner_api` describes them, and the
 socket, the network, the desktop bridge and the phone's and browser's proxies all serve whatever is in it. A new

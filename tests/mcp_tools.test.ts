@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
 import { create_local_mcp, type LocalMcp } from "@x-tech-laboratories/x-libs/electron/mcp";
+import { local_mcp_client_config } from "@x-tech-laboratories/x-libs/local_mcp_protocol";
 import { hash_password } from "@x-tech-laboratories/x-libs/server/passwords";
 
 import { build_app } from "../src/server/app.ts";
@@ -96,8 +97,25 @@ async function server_endpoint() {
   const session = (await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "root", password }) })).headers.get("set-cookie")!.split(";")[0]!;
   await fetch(`${base}/api/users`, { method: "POST", headers: { "content-type": "application/json", cookie: session }, body: JSON.stringify({ name: "guest", password, role: "user" }) });
   const read_only = ((await (await fetch(`${base}/api/account/tokens`, { method: "POST", headers: { "content-type": "application/json", cookie: session }, body: JSON.stringify({ name: "reader", read_only: true }) })).json()) as { token: string }).token;
+  const adder = ((await (await fetch(`${base}/api/account/tokens`, { method: "POST", headers: { "content-type": "application/json", cookie: session }, body: JSON.stringify({ name: "filer", scope: "add_items" }) })).json()) as { token: string }).token;
   const as = (token: string) => (method: string, params?: unknown) => mcp(`${base}/api/mcp`, { authorization: `Bearer ${token}` }, method, params);
-  return { ...parts, admin: as(await sign_in("root")), user: as(await sign_in("guest")), reader: as(read_only), anyone: async () => (await fetch(`${base}/api/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status };
+  // One API call with a token, giving back the status and the answer.
+  const post = async (token: string, path: string, body: unknown) => {
+    const response = await fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+    return { status: response.status, text: await response.text() };
+  };
+  return {
+    ...parts,
+    session,
+    base,
+    tokens: { reader: read_only, adder },
+    post,
+    admin: as(await sign_in("root")),
+    user: as(await sign_in("guest")),
+    reader: as(read_only),
+    adder: as(adder),
+    anyone: async () => (await fetch(`${base}/api/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status,
+  };
 }
 
 describe("the server's MCP endpoint", () => {
@@ -149,6 +167,56 @@ describe("the server's MCP endpoint", () => {
     expect(await anyone()).toBe(401);
   });
 
+  it("lets an Add items token add items over MCP and read, and refuses it anything that runs or edits", async () => {
+    const { adder, database } = await server_endpoint();
+
+    const added = answer(await adder("tools/call", { name: "add_item", arguments: { input: { title: "Swimlanes on the board", repository: make_checkout() } } }));
+    expect(added).toMatchObject({ error: false, value: { repository: "x-tech-laboratories/X-Dev", issue: { number: 42 } } });
+    const id = (added.value as { id: string }).id;
+    expect(answer(await adder("tools/call", { name: "lookup_item", arguments: { repository: "X-Tech-Laboratories/x-dev", issue_number: 42 } })).value).toMatchObject({ id, title: "Swimlanes on the board" });
+
+    const kept_to = "This token is kept to Add items";
+    expect(answer(await adder("tools/call", { name: "start_run", arguments: { item_id: id, options: {} } }))).toMatchObject({ error: true, value: expect.stringContaining(kept_to) });
+    expect(answer(await adder("tools/call", { name: "describe_item", arguments: { text: "A board" } }))).toMatchObject({ error: true, value: expect.stringContaining(kept_to) });
+    expect(answer(await adder("tools/call", { name: "save_item", arguments: { item: { id, title: "Renamed", repository: "x-tech-laboratories/X-Dev" } } }))).toMatchObject({ error: true, value: expect.stringContaining(kept_to) });
+    expect(bind_methods(() => database, () => undefined).get_item(id).title).toBe("Swimlanes on the board");
+    expect(runner!.methods.get_runner().running_run_id).toBeNull();
+  });
+
+  it("lets an Add items token add items on the API and post the calls that read, and refuses the rest", async () => {
+    const { post, tokens } = await server_endpoint();
+
+    const added = await post(tokens.adder, "/api/runner/add_item", [{ title: "Swimlanes on the board", repository: make_checkout() }]);
+    expect(added.status).toBe(200);
+    const id = (JSON.parse(added.text) as { id: string }).id;
+    expect(await post(tokens.adder, "/api/call/list_items", [])).toMatchObject({ status: 200, text: expect.stringContaining("Swimlanes on the board") });
+    expect(await post(tokens.adder, "/api/call/lookup_item", { repository: "x-tech-laboratories/X-Dev", issue_number: 42 })).toMatchObject({ status: 200, text: expect.stringContaining(id) });
+
+    expect(await post(tokens.adder, "/api/runner/start_run", [id, {}])).toMatchObject({ status: 403, text: expect.stringContaining("which does not include start_run") });
+    expect(await post(tokens.adder, "/api/call/save_item", [{ id, title: "Renamed", repository: "x-tech-laboratories/X-Dev" }])).toMatchObject({ status: 403 });
+    expect(await post(tokens.adder, "/api/stages/save_stage", [{}, null])).toMatchObject({ status: 403 });
+    expect(runner!.methods.get_runner().running_run_id).toBeNull();
+
+    expect(await post(tokens.reader, "/api/call/list_items", [])).toMatchObject({ status: 200 });
+    expect(await post(tokens.reader, "/api/runner/add_item", [{ title: "Nope", repository: "x-tech-laboratories/X-Dev" }])).toMatchObject({ status: 403, text: expect.stringContaining("This token can only read.") });
+  });
+
+  it("follows a run until it changes over MCP and the API, and lists its waiting approvals", async () => {
+    const { admin, post, session, base } = await server_endpoint();
+    const id = (answer(await admin("tools/call", { name: "add_item", arguments: { input: { title: "Swimlanes on the board", repository: make_checkout(), body: "ASK STATUS" } } })).value as { id: string }).id;
+    const run_id = answer(await admin("tools/call", { name: "start_run", arguments: { item_id: id, options: { stage: "plan" } } })).value as string;
+
+    let update = answer(await admin("tools/call", { name: "get_run_update", arguments: { run_id, timeout_seconds: 20 } })).value as { changed: boolean; run: { state: string } };
+    while (update.run.state === "running") update = answer(await admin("tools/call", { name: "get_run_update", arguments: { run_id, timeout_seconds: 20 } })).value as typeof update;
+    expect(update).toMatchObject({ changed: true, run: { id: run_id, state: "waiting", question: "Which board layout?", permissions: [] } });
+    expect(answer(await admin("tools/call", { name: "list_permission_requests", arguments: { run_id } })).value).toEqual([]);
+
+    const token = ((await (await fetch(`${base}/api/account/tokens`, { method: "POST", headers: { "content-type": "application/json", cookie: session }, body: JSON.stringify({ name: "full", read_only: false }) })).json()) as { token: string }).token;
+    const over_api = await post(token, "/api/runner/get_run_update", [run_id, 0]);
+    expect(over_api.status).toBe(200);
+    expect(JSON.parse(over_api.text)).toMatchObject({ changed: false, run: { state: "waiting" } });
+  });
+
   it("refuses to loosen permissions or name another program", async () => {
     const { admin } = await server_endpoint();
 
@@ -180,5 +248,24 @@ describe("the desktop daemon's local MCP endpoint", () => {
     expect(added.value).toMatchObject({ repository: "x-tech-laboratories/X-Dev", issue: { number: 42 } });
     const refused = answer(await mcp(status.url, {}, "tools/call", { name: "set_runner_setting", arguments: { key: "claude_program", value: "/bin/sh" } }));
     expect(refused.error).toBe(true);
+  });
+
+  it("with Require a token on, turns away a caller without the token kept in the profile", async () => {
+    const parts = await daemon_parts();
+    const profile = mkdtempSync(join(tmpdir(), "x-dev-mcp-"));
+    const call = create_mcp_call({ database: () => parts.database, announce: () => undefined, stages: parts.stages, runner: parts.runner.methods });
+    local = create_local_mcp({ name: "x-dev", version: "0.0.0", instructions: mcp_instructions, api: mcp_api(true), is_read_only, settings_file: join(profile, "mcp.json"), token_file: join(profile, "mcp-token"), default_port: 0, call });
+    expect(local.methods.get_local_mcp_settings().require_token).toBe(false);
+
+    local.methods.set_local_mcp_settings({ enabled: true, port: 0, require_token: true });
+    await local.start();
+    const status = await local.methods.get_local_mcp_status();
+    expect(status.token_file).toBe(join(profile, "mcp-token"));
+    expect((statSync(status.token_file!).mode & 0o777).toString(8)).toBe("600");
+
+    const without = await fetch(status.url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    expect(without.status).toBe(401);
+    const header = local_mcp_client_config("x-dev", status)!.mcpServers["x-dev"]!.headers!;
+    expect(answer(await mcp(status.url, header, "tools/call", { name: "list_items", arguments: {} })).value).toEqual([]);
   });
 });

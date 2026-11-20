@@ -91,7 +91,8 @@ describe("the phone's page", () => {
 
     state = "waiting";
     send_change();
-    await vi.waitFor(() => expect(plugin_calls.scheduled).toEqual([expect.objectContaining({ title: "Plan has questions: Swimlanes", body: "Lanes or tabs?", extra: { url: "x-dev://items/i1/r1" } })]), { timeout: 2000 });
+    await vi.waitFor(() => expect(plugin_calls.scheduled).toEqual([expect.objectContaining({ title: "Plan has questions: Swimlanes", body: "Lanes or tabs?", extra: { url: "x-dev://items/i1/r1" }, isExactNotification: false })]), { timeout: 2000 });
+    expect(plugin_calls.scheduled[0]).not.toHaveProperty("schedule");
     expect(plugin_calls.listeners).toContain("resume");
   });
 

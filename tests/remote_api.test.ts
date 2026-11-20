@@ -53,6 +53,7 @@ function fake_runner() {
     retry_run: vi.fn(async () => "run-2"),
     set_run_mode: vi.fn(async () => undefined),
     answer_permission: vi.fn(),
+    get_run_update: vi.fn(),
   } satisfies Record<keyof RunnerMethods, unknown>;
 }
 

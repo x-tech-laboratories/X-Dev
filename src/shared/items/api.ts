@@ -20,6 +20,13 @@ export const items_api = {
     params: [{ name: "include_closed", schema: { type: "boolean", description: "Whether closed items are listed too; false when left out." }, optional: true }],
   },
   get_item: { description: "One item with its status sheet.", params: [{ name: "id", schema: id_of("item") }] },
+  lookup_item: {
+    description: "Finds the item that tracks a GitHub issue, by the repository as owner/name and the issue's number, the open one first, else the newest; gives back the item with its status sheet, or null when none tracks it.",
+    params: [
+      { name: "repository", schema: text("The repository as owner/name, such as x-tech-laboratories/X-Dev; case does not matter.") },
+      { name: "issue_number", schema: { type: "integer", minimum: 1, description: "The issue's number." } },
+    ],
+  },
   get_item_github: {
     description:
       "What X-Dev keeps in step with an item's GitHub issue: its pull request with the state (open, closed or merged) and each check's outcome (pass, fail, pending, skipping or cancel), the stage labels and report comments it last posted, and why the last attempt to reach GitHub failed, if it did.",
