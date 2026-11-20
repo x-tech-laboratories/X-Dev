@@ -28,12 +28,14 @@ import { read_desktop_settings, type DaemonMethods, type DesktopSettings } from 
 import { mcp_instructions, without_secrets } from "../shared/mcp.ts";
 import type { DeviceMethods } from "../shared/page_api.ts";
 import { bind_methods, dev_api, is_read_only, needs_upgrade, open_store, sync_engine } from "../shared/store.ts";
+import { build_app } from "../server/app.ts";
 import { register_dev_calls } from "../server/calls.ts";
 import { create_github_sync } from "../server/github_sync.ts";
 import { create_run_tools } from "../server/run_tools.ts";
 import { create_runner } from "../server/runner.ts";
 import { create_stage_files } from "../server/stage_files.ts";
 import { record_history } from "../shared/history/store.ts";
+import { create_remote_access } from "./remote_access.ts";
 import { watch_run_notices } from "./run_notices.ts";
 
 // ── Profile ──────────────────────────────────────────────────────────────────
@@ -83,6 +85,8 @@ const kept = sqlite_backups({
   open: () => {
     database = open_database();
     open_store(database);
+    // Other devices are signed in against the accounts in the database, so their server follows it.
+    void remote.restart();
   },
   after_restore: (restored) => sync_engine.forget_history(restored),
 });
@@ -172,24 +176,53 @@ function read_desktop(): DesktopSettings {
   return read_desktop_settings(existsSync(desktop_file) ? JSON.parse(readFileSync(desktop_file, "utf8")) : null);
 }
 
+// ── Other devices ────────────────────────────────────────────────────────────
+
+// The page as a browser loads it from this computer: the desktop app's own build, beside out/main.
+const page_folder = join(import.meta.dirname, "../renderer");
+
+// Off until turned on; then phones, browsers and other computers sign in as an admin and reach the same calls, the
+// runner's included, and changes reach every window and device alike.
+const remote = create_remote_access({
+  profile,
+  build: (admins, https) =>
+    build_app({
+      database,
+      declared: admins,
+      web_folder: page_folder,
+      backups: backup_methods(),
+      stages: stage_files.methods,
+      changes,
+      runner: runner.methods,
+      ...(https ? { https } : {}),
+    }),
+});
+
 // ── Calls ────────────────────────────────────────────────────────────────────
 
-function device_methods(): DeviceMethods {
+// This computer's backups, which an admin on another device reaches too.
+function backup_methods() {
   return {
-    ...sync_device_methods(sync),
     list_backups: kept.list,
     create_backup: () => kept.create(),
     // The restored data no longer matches the server's, so sync waits until the user picks which copy wins.
-    restore_backup: async (name) => {
+    restore_backup: async (name: string) => {
       sync.disconnect();
       await kept.restore(name);
     },
     remove_backup: kept.remove,
     get_backup_schedule: read_backup_schedule,
-    set_backup_schedule: (schedule) => {
+    set_backup_schedule: (schedule: BackupSchedule) => {
       writeFileSync(schedule_file, JSON.stringify(read_schedule(schedule), null, 2));
       void backing_up.check();
     },
+  };
+}
+
+function device_methods(): DeviceMethods {
+  return {
+    ...sync_device_methods(sync),
+    ...backup_methods(),
   };
 }
 
@@ -218,6 +251,7 @@ async function build_daemon(shut_down: () => void): Promise<FastifyInstance> {
       register_call_table(api, "/stages", stage_files.methods, { is_read_only, on_change: tell_others });
       register_call_table(api, "/runner", runner.methods, { is_read_only, on_change: tell_others });
       register_call_table(api, "/daemon", daemon_methods(shut_down), { is_read_only, on_change: tell_others });
+      register_call_table(api, "/remote", remote.methods, { is_read_only });
     },
     { prefix: "/api" },
   );
@@ -243,6 +277,7 @@ async function main(): Promise<void> {
     backing_up.stop();
     void daemon
       .close()
+      .then(() => remote.stop())
       .then(() => local_mcp.stop())
       .then(() => run_tools.stop())
       .finally(() => {
@@ -266,6 +301,7 @@ async function main(): Promise<void> {
   await run_tools.start();
   runner.recover();
   github.start();
+  await remote.restart();
 
   // Without "Keep running in the background", the daemon stops a while after its last window has gone.
   let unused_since = Date.now();

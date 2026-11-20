@@ -253,6 +253,15 @@ export function create_runner({ database, stages, run_tools, folder, after_write
     current = { run_id: run.id, controller, finished };
   }
 
+  // A run started here keeps its folder until it is discarded; a run synced from another computer has none.
+  function is_own_run(run_id: string): boolean {
+    return existsSync(join(folder, "runs", run_id));
+  }
+
+  function require_own(run: Run): void {
+    if (!is_own_run(run.id)) throw new Error("that run was started on another computer, which holds its worktree and session; act on it from X-Dev there, or connect to that computer");
+  }
+
   function require_free(): void {
     if (current) throw new Error("a run is under way; wait for it or stop it first");
   }
@@ -330,6 +339,7 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       require_free();
       const run = find_run(database(), run_id);
       if (run.state !== "waiting") throw new Error("that run is not waiting for answers");
+      require_own(run);
       if (!answers.trim()) throw new Error("write the answers first");
       const item = item_of(run.item_id);
       const worktree = join(folder_of(item.repository), ".claude", "worktrees", item.branch.replace(/^worktree-/, ""));
@@ -342,6 +352,7 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       if (run.state === "discarded") return;
       const latest = database().prepare("SELECT id FROM runs WHERE item_id = ? AND state != 'discarded' ORDER BY started_at DESC LIMIT 1").get(run.item_id) as { id: string } | undefined;
       if (latest?.id !== run_id) throw new Error("only the item's latest run can be discarded");
+      require_own(run);
       const item = item_of(run.item_id);
       const worktree = item.branch ? join(folder_of(item.repository), ".claude", "worktrees", item.branch.replace(/^worktree-/, "")) : "";
       if (worktree && run.start_commit && existsSync(worktree)) {
@@ -410,7 +421,8 @@ export function create_runner({ database, stages, run_tools, folder, after_write
   return {
     methods,
     recover: () => {
-      for (const run of runs_in_state(database(), "running")) update_run(database(), run.id, { state: "failed", ended_at: now(), error: "X-Dev stopped while the run was under way." });
+      // Runs another computer has under way, which arrived by sync, are left to it.
+      for (const run of runs_in_state(database(), "running").filter((each) => is_own_run(each.id))) update_run(database(), run.id, { state: "failed", ended_at: now(), error: "X-Dev stopped while the run was under way." });
       after_write();
     },
     mark_asked: (run_id) => void asked.add(run_id),

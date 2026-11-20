@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { watch_run_notices } from "../src/daemon/run_notices.ts";
 import { desktop_setting_defaults, read_desktop_settings, type DesktopSettings } from "../src/shared/desktop.ts";
 import type { PullRequest } from "../src/shared/items/github.ts";
-import { checks_notices, run_notices, type RunSnapshot, type SeenRun } from "../src/shared/runs/notices.ts";
+import { checks_notices, pull_request_snapshots, run_notices, watch_notices, type RunSnapshot, type SeenRun } from "../src/shared/runs/notices.ts";
 import { insert_run, update_run } from "../src/shared/runs/store.ts";
 import { bind_methods, open_store } from "../src/shared/store.ts";
 
@@ -111,5 +111,49 @@ describe("the daemon's run notices", () => {
 
   it("are all on unless switched off, a damaged setting read as on", () => {
     expect(read_desktop_settings({ notify_run_failed: false, notify_run_asked: "yes" })).toMatchObject({ notify_run_finished: true, notify_run_failed: false, notify_run_asked: true, notify_run_proposed: true, show_tray_icon: true });
+  });
+});
+
+// ============================================================================
+// Watching from elsewhere
+// ============================================================================
+
+describe("notices from a daemon elsewhere", () => {
+  it("learn what runs first, then tell of a run that asked, by the kinds switched on, asking after the runs seen before", async () => {
+    let runs = [snapshot({})];
+    const read_runs = vi.fn(async () => runs);
+    const show = vi.fn();
+    const watch = watch_notices({ read_runs, read_pull_requests: async () => [], stage_label: label, is_on: (kind) => kind !== "run_failed", show });
+
+    await watch.check();
+    expect(show).not.toHaveBeenCalled();
+    runs = [snapshot({ state: "waiting", question: "Lanes or tabs?" })];
+    await watch.check();
+
+    expect(read_runs).toHaveBeenLastCalledWith(["r1"]);
+    expect(show).toHaveBeenCalledWith(expect.objectContaining({ kind: "run_asked", title: "Plan has questions: Runs page", body: "Lanes or tabs?", url: "x-dev://items/i1/r1" }));
+  });
+
+  it("leave out the kinds switched off", async () => {
+    let runs = [snapshot({})];
+    const show = vi.fn();
+    const watch = watch_notices({ read_runs: async () => runs, read_pull_requests: async () => [], stage_label: label, is_on: async () => false, show });
+
+    await watch.check();
+    runs = [snapshot({ state: "failed", error: "A gate failed." })];
+    await watch.check();
+
+    expect(show).not.toHaveBeenCalled();
+  });
+
+  it("read the open items' pull requests from the items", () => {
+    const read = vi.fn(() => null);
+    const items = [
+      { id: "i1", title: "Open", pull_request: "{}", closed_at: null },
+      { id: "i2", title: "None yet", pull_request: "", closed_at: null },
+      { id: "i3", title: "Closed", pull_request: "{}", closed_at: "2026-11-20T10:00:00Z" },
+    ];
+
+    expect(pull_request_snapshots(items, read)).toEqual([{ item_id: "i1", item_title: "Open", pull_request: null }]);
   });
 });
