@@ -301,6 +301,7 @@ const live_transcript = JSON.stringify({
     { kind: "tool", id: "t1", name: "Edit", input: { file_path: "src/board.ts", old_string: "old lane", new_string: "new lane" }, result: "Edited.", streaming: false },
     { kind: "tool", id: "t2", name: "Bash", input: { command: "npm test" }, result: "1 failed", is_error: true, streaming: false },
     { kind: "thinking", text: "The lanes need a key.", streaming: true },
+    { kind: "tool", id: "t3", name: "Grep", input: { pattern: "lane_key" }, streaming: false },
     { kind: "user", role: "interjection", id: "u1", text: "Keep lanes narrow.", pending: true },
   ],
 });
@@ -320,6 +321,7 @@ describe("a run as it happens", () => {
     expect(within(log).getByText("new lane").closest("tr")!.className).toBe("tone-fill-good");
     expect(within(log).getByText("failed")).toBeTruthy();
     expect(within(log).getByText("Not read yet")).toBeTruthy();
+    expect(within(log).getByRole("status", { name: "Running" }).previousElementSibling!.textContent).toBe("Grep");
     expect(within(log).getByText("What Plan was given")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Interrupt" }));
