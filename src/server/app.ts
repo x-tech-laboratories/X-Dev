@@ -70,8 +70,7 @@ export async function build_app(options: AppOptions): Promise<FastifyInstance> {
   await register_open_cors(app);
   const accounts = new AccountStore({ database: options.database, app_name: "X-Dev", declared: options.declared, token_prefix: "xf" });
   const admin = { role: accounts.top_role };
-  // Backups reach the whole database, the accounts included, stages tell agents what to run, and the runner starts them
-  // with this computer's rights, so only an admin may reach any of them.
+  // Backups hold the accounts, stages steer agents and the runner starts them with this computer's rights: admins only.
   const admin_only = ["/api/backup/", "/api/stages/", "/api/runner/"];
   await register_accounts(app, { accounts, cookie_name: "x_dev_session", read_only_paths: ["/api/mcp"], needed: (_method, path) => (admin_only.some((prefix) => path.startsWith(prefix)) ? admin : "any") });
 

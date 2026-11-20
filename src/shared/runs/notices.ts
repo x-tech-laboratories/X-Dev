@@ -124,8 +124,7 @@ export interface NoticeWatchOptions {
   show: (notice: RunNotice) => void;
 }
 
-// Watches a daemon reached through its calls, as a phone or a window connected to another computer does; the first
-// check only learns what is under way, and checks close together run one after another.
+// Watches a daemon elsewhere through its calls; the first check only learns what is under way, and checks run in turn.
 export function watch_notices(options: NoticeWatchOptions): { check: () => Promise<void> } {
   let seen: Map<string, SeenRun> | null = null;
   let checks_running = new Set<string>();

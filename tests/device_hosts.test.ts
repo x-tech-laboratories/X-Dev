@@ -19,7 +19,7 @@ vi.mock("@capacitor/core", () => ({ registerPlugin: () => ({}) }));
 import { android_api } from "../src/web/hosts/android.ts";
 import { desktop_api } from "../src/web/hosts/desktop.ts";
 
-const daemon = { id: "home", name: "Workstation", address: "https://dev.example.org:7760", user: "root", token: "phone-token" };
+const daemon = { id: "home", name: "Workstation", address: "https://dev.example.org:7760", user: "root", token: crypto.randomUUID() };
 
 beforeEach(() => {
   localStorage.clear();

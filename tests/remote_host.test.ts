@@ -5,7 +5,7 @@ import { LoginNeeded } from "@x-tech-laboratories/x-libs/web/states";
 import type { RunnerMethods } from "../src/shared/runs/runner.ts";
 import { call_remote, follow_remote, parse_remote_event, read_abilities, remote_table, type RemoteLink } from "../src/web/hosts/remote.ts";
 
-const daemon = { address: "https://dev.example.org", token: "device-token" };
+const daemon = { address: "https://dev.example.org", token: crypto.randomUUID() };
 
 function link_with(fetch: typeof globalThis.fetch, chosen: typeof daemon | null = daemon): RemoteLink {
   return { daemon: () => chosen, client_id: () => "client-1", fetch };
@@ -21,7 +21,7 @@ describe("a page's calls to a daemon elsewhere", () => {
 
     expect(fetch).toHaveBeenNthCalledWith(1, "https://dev.example.org/api/runner/start_run", {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: "Bearer device-token", "x-client-id": "client-1" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${daemon.token}`, "x-client-id": "client-1" },
       body: JSON.stringify(["item-1", { stage: "plan" }]),
     });
     expect(fetch).toHaveBeenNthCalledWith(2, "https://dev.example.org/api/runner/answer_run", expect.objectContaining({ body: JSON.stringify(["run-1", "Lanes."]) }));
@@ -69,7 +69,7 @@ describe("a daemon's change events", () => {
     stop();
 
     expect(on_connect).toHaveBeenCalledTimes(1);
-    expect(fetch).toHaveBeenCalledWith("https://dev.example.org/api/events", expect.objectContaining({ headers: { accept: "text/event-stream", authorization: "Bearer device-token" } }));
+    expect(fetch).toHaveBeenCalledWith("https://dev.example.org/api/events", expect.objectContaining({ headers: { accept: "text/event-stream", authorization: `Bearer ${daemon.token}` } }));
   });
 
   it("are parsed one block at a time", () => {

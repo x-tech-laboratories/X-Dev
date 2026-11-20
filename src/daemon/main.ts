@@ -181,8 +181,7 @@ function read_desktop(): DesktopSettings {
 // The page as a browser loads it from this computer: the desktop app's own build, beside out/main.
 const page_folder = join(import.meta.dirname, "../renderer");
 
-// Off until turned on; then phones, browsers and other computers sign in as an admin and reach the same calls, the
-// runner's included, and changes reach every window and device alike.
+// Off until turned on; then other devices sign in as an admin and reach the same calls, the runner's included.
 const remote = create_remote_access({
   profile,
   build: (admins, https) =>

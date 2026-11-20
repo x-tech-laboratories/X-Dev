@@ -31,8 +31,7 @@ const own_sections = ["settings", "account", "users"];
 
 // ── App ──────────────────────────────────────────────────────────────────────
 
-// A browser signs in to the server; the desktop app works on its own daemon or another, and the phone on a daemon
-// elsewhere, each signing in once to it. A device that syncs asks to trust its server's certificate whenever sync fails.
+// A desktop or phone app works on the daemon it connected to, and one that syncs asks to trust its server's certificate.
 function DeviceApp() {
   const { certificates, device, connections } = page();
   const [has_daemon, set_has_daemon] = useState<boolean | null>(connections ? null : true);

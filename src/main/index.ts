@@ -1,6 +1,4 @@
-// The desktop app's window: Electron's main process, which shows X-Dev, keeps its tray icon and its login entry, and
-// leaves the work to a daemon: this computer's own in src/daemon over a Unix socket, or one on another computer over
-// http(s) with this device's token, whichever Settings → Connections chose.
+// The desktop app's window, tray and login entry, leaving the work to this computer's daemon or one chosen elsewhere.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
@@ -127,8 +125,7 @@ function apply_autostart(settings: DesktopSettings): void {
   );
 }
 
-// Every window hears of the chosen daemon's changes, and comes back to this computer's daemon when it stopped, such as
-// one quit from the tray.
+// Every window hears of the chosen daemon's changes, and this computer's daemon starts again when it stopped.
 let is_quitting = false;
 let stop_following = (): void => {};
 
