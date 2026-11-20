@@ -61,8 +61,7 @@ export const runs = sqliteTable(
     permission_mode: text().notNull().default(""),
     allowed: text().notNull().default("[]"),
     awaiting: text().notNull().default(""),
-    // The files the user marked reviewed, each with the fingerprint of the content they saw, and the files the user put
-    // back as they were, as JSON.
+    // The files marked reviewed, each with the fingerprint of the content seen, and the files put back, as JSON.
     reviewed: text().notNull().default("{}"),
     reverts: text().notNull().default("[]"),
   },

@@ -232,8 +232,7 @@ export async function revert_file(context: ChangeContext, scope: ChangeScope, ru
 
 // ── Runs ─────────────────────────────────────────────────────────────────────
 
-// The lines each finished run changed between the commit it started on and the one it ended on, and how many of its
-// files the user marked reviewed with the content they hold at its end.
+// The lines each finished run changed from its first commit to its last, and how many files are marked reviewed.
 export async function read_run_changes(database: SqlDatabase, run_ids: string[], repositories: Record<string, string>): Promise<Record<string, LineCounts>> {
   const read = database.prepare("SELECT runs.start_commit, runs.end_commit, runs.reviewed, items.repository, items.branch FROM runs JOIN items ON items.id = runs.item_id WHERE runs.id = ?");
   const counted: Record<string, LineCounts> = {};
