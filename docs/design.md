@@ -503,17 +503,22 @@ five cents in all, through a Node script that spoke the protocol the runner spea
 - A daemon that lets other devices connect, signing in, the runner's calls through it with the admin check, the
   settings it refuses from elsewhere and the open CORS are tested with Fastify on 127.0.0.1 and a stand-in runner that
   starts nothing; a real run started from another device was not tried.
-- Two copies of the store converge on items, runs with their questions, answers and reports, and proposals, through
-  the sync engine directly rather than over the network; a daemon that both serves sync to others and syncs with a
-  server, passing changes along, is not tested.
+- Two daemons and a server, each on its own loopback port and throwaway database, converge on items, runs with their
+  questions, answers and reports, and proposals changed on each side; a run synced from the other daemon is not failed
+  at start, answered or discarded there. A daemon that serves sync to another device and syncs with a server passes the
+  server's changes on to the device, but not the device's to the server, since the sync engine sends only the changes
+  made on the daemon itself; that test is marked as failing until X-Libs carries them along.
 - The phone's and browser's calls to a daemon, its event stream, the first-connection screen, the Connections and
-  Other devices settings and phone notices are tested in jsdom against stand-ins; the desktop app's switch between
-  daemons and its notices for a daemon elsewhere are not covered by tests.
+  Other devices settings and phone notices are tested in jsdom against stand-ins. The desktop main process's switch
+  between daemons (`src/main/daemon_router.ts`), its change events, restarting this computer's daemon and its notices
+  for a daemon elsewhere are tested against a daemon on a socket and one on loopback, without Electron.
 - The Android debug package was run in a headless Android 16 emulator against a daemon on the same computer, reached
   over `adb reverse` with plain http to localhost and stand-ins for `claude` and `gh`: adding the daemon, the board in
   the phone layout, starting a run, answering its question, and a run's notice arriving with the app in the background
-  and opening the item when tapped. A real phone, https to a daemon on another computer and a trusted self-signed
-  certificate were not tried.
+  and opening the item when tapped. A real phone was not tried.
+- A daemon on https with a self-signed certificate made by openssl is refused until the device trusts it, then signs
+  in an admin, adds an item, runs its stage with stand-ins for `claude` and `gh`, answers it and follows the event
+  stream, all over loopback; plain http does the same. Another computer on a real network was not tried.
 - Every control is an MCP tool on the server and on the daemon's local endpoint; adding an item from a checkout's
   folder, opening its issue, starting its run and answering its question are tested through the MCP endpoints
   themselves, with stand-ins for `claude` and `gh`.

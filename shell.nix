@@ -5,6 +5,7 @@ pkgs.mkShell {
     nodejs_24 # Runs the server's .ts files directly and builds the page.
     electron_43 # The desktop app; the npm-downloaded Electron cannot run on NixOS.
     git
+    openssl # Makes the certificates the https tests use.
   ];
 
   shellHook = ''

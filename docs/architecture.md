@@ -47,7 +47,8 @@ token per run, and is never reached through any of this.
 The desktop app's main process keeps the list of daemons with X-Libs `connections` in `connections.json` and sends the
 page's calls through `daemon_link`, except sync, certificates, the local MCP endpoint, its own settings and who may
 connect, which always belong to this computer's daemon. Choosing another daemon reloads every window, and
-`daemon_is_here` in the page api then hides what needs this computer's screen, such as the folder dialog. For a daemon
+`daemon_is_here` in the page api then hides what needs this computer's screen, such as the folder dialog. Where each call and change event goes, and the notices below, are worked out apart from Electron in
+`src/main/daemon_router.ts`. For a daemon
 elsewhere it shows that daemon's notices itself with `watch_notices` in `src/shared/runs/notices.ts`, which reads
 `list_watched_runs` and the open items after each change event. The phone does the same while it is open or in the background, showing each at once through Capacitor's local notifications, keyed by X-Libs `notice_id`.
 
