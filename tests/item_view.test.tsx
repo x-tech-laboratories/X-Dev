@@ -39,6 +39,7 @@ function fake_page(with_runner = true) {
     stop_run: vi.fn(),
     answer_run: vi.fn(),
     discard_run: vi.fn(async () => undefined),
+    link_issue: vi.fn(async () => ({ number: 12, opened: true })),
     describe_item: vi.fn(async () => ({ title: "Swimlane board", kind: "feature" as const, repository: "x-tech-laboratories/X-Dev", body: "One lane per item." })),
   } satisfies RunnerMethods;
   set_page_api({
@@ -123,6 +124,16 @@ describe("an item's page", () => {
     await waitFor(() => expect(runner.answer_run).toHaveBeenCalledWith(waiting, "Lanes."));
   });
 
+  it("finds or opens an issue for an item that has none", async () => {
+    const { store, runner } = fake_page();
+    const id = store.save_item(item);
+    render(<App />);
+    go(`#/items/${id}`);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Find or Open an Issue" }));
+    await waitFor(() => expect(runner.link_issue).toHaveBeenCalledWith(id));
+  });
+
   it("says runs start from the desktop app where no runner is reached", async () => {
     const { store } = fake_page(false);
     const id = store.save_item(item);
@@ -135,7 +146,7 @@ describe("an item's page", () => {
 
 describe("the items page", () => {
   it("keeps proposals in the inbox until taken or dropped", async () => {
-    const { database, store } = fake_page();
+    const { database, store, runner } = fake_page();
     const source = store.save_item(item);
     const run = add_run(database, source, { state: "done" });
     const taken = propose(database, { item_id: source, run_id: run }, { title: "Faster drawing", why: "It lags." }).item_id;
@@ -145,6 +156,7 @@ describe("the items page", () => {
     const inbox = (await screen.findByRole("heading", { name: "Inbox (2)" })).closest("section")!;
     fireEvent.click(within(inbox).getByRole("button", { name: "Take Faster drawing" }));
     await waitFor(() => expect(store.get_item(taken).stage).toBe("triage"));
+    await waitFor(() => expect(runner.link_issue).toHaveBeenCalledWith(taken));
     fireEvent.click(await screen.findByRole("button", { name: "Drop Export the board" }));
     await waitFor(() => expect(store.list_proposals()).toEqual([]));
   });
@@ -164,5 +176,6 @@ describe("the items page", () => {
 
     await waitFor(() => expect(store.list_items()).toHaveLength(1));
     expect(store.list_items()[0]).toMatchObject({ title: "Swimlane board", body: "One lane per item." });
+    await waitFor(() => expect(runner.link_issue).toHaveBeenCalledWith(store.list_items()[0]!.id));
   });
 });

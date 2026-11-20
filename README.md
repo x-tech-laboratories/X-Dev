@@ -21,7 +21,9 @@ What it does so far:
   report the next run starts from. A run can ask you questions and wait, update the item's status sheet, and propose
   new items into the Inbox. Every run keeps its transcript, cost and report; the latest can be stopped or discarded,
   which puts the worktree, the status sheet and the stage back as they were.
-- **New items:** described in a few lines for an agent to fill the form in from, or filled in by hand.
+- **New items:** described in a few lines for an agent to fill the form in from, or filled in by hand. An item saved
+  without an issue number, or a proposal taken from the inbox, is linked to the open issue that matches its title, or
+  gets a new issue with its title and body.
 
 ## Running it
 
@@ -77,8 +79,10 @@ that lets it reach only its item: `ask_user`, `get_item_status`, `update_item_st
 (its agent definition and MCP config) are kept in the profile folder under `runs/`. Runs are not versioned in History;
 their transcripts and reports are kept with them.
 
-X-Dev starts `claude` and `git` as programs, an exception to the Application Standard's rule that a daemon does not
-shell out: Claude Code has no Node API that runs on the user's own login, and Node has no API for git worktrees.
+X-Dev starts `claude`, `git` and `gh` as programs, an exception to the Application Standard's rule that a daemon does
+not shell out: Claude Code has no Node API that runs on the user's own login, Node has no API for git worktrees, and
+going through the `gh` you are signed into means X-Dev never reads, stores or passes on a GitHub token. Sign `gh` in
+with `gh auth login` before an item needs an issue; **Settings → Pipeline → Runs** names another `gh` if needed.
 
 ## The desktop app in the background
 

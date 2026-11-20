@@ -227,14 +227,17 @@ its own process group, stopped by an abort signal). It runs on the user's own Cl
   watching.
 
 This is a written exception to "a daemon never shells out": Claude Code has no Node API that uses the
-user's login, and `git worktree` has none either. Both are named in the README. GitHub is reached
-through Octokit, not `gh`, with the token read from a file the config names.
+user's login, and `git worktree` has none either. GitHub is reached through the `gh` program the user
+is signed into, so X-Dev never reads, stores or passes on a GitHub token. All three are named in the
+README.
 
 Other backends, such as OpenCode, can be added as plugins later.
 
 ## GitHub
 
-- An item is made from an issue, or makes one. Its stage is mirrored as a `stage:*` label, and
+- An item is made from an issue, or makes one: an item saved without an issue number, or a proposal
+  taken from the inbox, is linked to the open issue whose title matches it closely, or opens a new
+  issue with its title and body. Its stage is mirrored as a `stage:*` label, and
   `stage:needs-input` marks open questions; X-Dev creates missing labels and never edits others.
 - Each report is posted as a comment starting with `<!-- stage-handoff -->`.
 - Review opens the pull request with `Closes #<n>`. The item page shows the pull request and its

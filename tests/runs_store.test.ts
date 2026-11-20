@@ -2,9 +2,9 @@ import { DatabaseSync } from "node:sqlite";
 
 import { describe, expect, it } from "vitest";
 
-import { empty_status } from "../src/shared/items/model.ts";
+import { empty_status, title_likeness } from "../src/shared/items/model.ts";
 import { answers_input, append_output, build_run_input, check_questions, output_limit, parse_report, read_stream_line } from "../src/shared/runs/model.ts";
-import { insert_run, latest_report, propose, title_likeness, update_run } from "../src/shared/runs/store.ts";
+import { insert_run, latest_report, propose, update_run } from "../src/shared/runs/store.ts";
 import { bind_methods, open_store } from "../src/shared/store.ts";
 
 function open_methods() {
