@@ -9,7 +9,9 @@ atomic: it ends by saving a report, and the next stage starts from that report a
 - **Item**: one feature or bug fix in one repository, linked to its GitHub issue, with its own git
   worktree and branch.
 - **Stage**: one step of the work, defined in a file (see [Stage files](#stage-files)). The default
-  stages are Plan, Implement, Extract, Docs, Review and Deploy.
+  stages are listed below.
+- **Gate**: a check X-Dev runs itself, not the agent, after a stage; a failed gate keeps the item
+  from moving on (see [Gates](#gates)).
 - **Run**: one stage run on one item. It keeps the input it was given, the commit it started from,
   the agent's output, the report, the tokens it used and how it ended.
 - **Report**: what a run hands to the next stage. It is the only thing a stage passes on.
@@ -18,12 +20,20 @@ atomic: it ends by saving a report, and the next stage starts from that report a
 
 | Stage     | Does                                                                                   | Can edit |
 | --------- | -------------------------------------------------------------------------------------- | -------- |
+| Triage    | Sorts the issue into bug or feature, reproduces a bug, finds duplicates, splits an issue too big for one item, and names the stages the item needs | no |
 | Plan      | Reads the issue and the code, checks X-Libs and Halon for reuse, writes the plan, asks questions | no |
-| Implement | Writes the code and its tests in the item's worktree, raises the coverage floor        | yes      |
+| Specify   | Writes the behaviour as failing tests, as the [testing guideline](https://x-tech-laboratories.github.io/guidelines/testing/) asks; a bug gets a test that fails because of it | tests only |
+| Implement | Writes the code until Specify's tests pass, without changing them, and raises the coverage floor | yes, not Specify's tests |
+| Verify    | Runs the real app off the user's screen, under Xvfb, works through the change and takes screenshots | no code |
 | Extract   | Moves what other apps could use into X-Libs or Halon, or adds it to X-Libs' TODO        | yes      |
-| Docs      | Brings the README, docs, comments and screenshots in line with the change              | yes      |
-| Review    | Checks code, docs and UI against the standards; pushes and opens the pull request when it passes, or sends the item back | no |
-| Deploy    | After the user merges, follows the release and deploys to TechNet through X-Nix        | no code  |
+| Docs      | Brings the README, docs, comments and Verify's screenshots in line with the change      | docs only |
+| Review    | Reviews code, security, docs and UI against the standards with a different model from Implement's; pushes and opens the pull request when it passes, or sends the item back | no |
+| Release   | After the user merges, makes the version and changelog from the commits and tags it, so CI builds and publishes the release | version only |
+| Deploy    | Deploys the release to TechNet through X-Nix, coordinated with the other sessions       | no code  |
+| Close     | Closes the issue, removes the worktree and branch, and proposes changes to stage files, AGENTS.md or memories from what the runs got wrong | no code |
+
+Triage decides which stages an item takes: a docs fix skips Specify, Implement and Verify, a library
+change skips Deploy, and an item with no UI skips Verify. The user can change the list on the item.
 
 Tracking is not a stage: the item and its GitHub issue are the record every stage reads and writes.
 
@@ -58,6 +68,44 @@ nothing else; the user discards it or runs the stage again.
 
 Reports go to GitHub, often in public: no secrets, tokens, personal names or emails.
 
+## Gates
+
+Good practice is enforced by checks, not left to the agent's prompt. After a run, X-Dev runs the
+stage's gates in the worktree. A failed gate marks the run failed with what it found, and the item
+cannot move on until the stage runs again or the user overrides that gate with a written reason,
+which goes into the report and the issue.
+
+The same checks are a command, `x-dev check <gate>...`, so a repository's CI can run them on every
+pull request and nothing that skipped X-Dev gets past them.
+
+| Gate | Checks | After |
+| ---- | ------ | ----- |
+| `report` | The report block is whole and names a known next stage | every stage |
+| `worktree` | Nothing changed outside the item's worktree, and the main checkout is untouched | every stage that edits |
+| `scope` | Only the paths the stage may touch changed: tests for Specify, docs for Docs, the version for Release | Specify, Docs, Release |
+| `tests-fail-first` | Specify's new tests fail on the commit the item started from | Specify |
+| `tests-kept` | Specify's tests are unchanged and none is skipped, `.only` or deleted | Implement and later |
+| `tests-pass` | The tests for the changed files pass | Implement, Extract |
+| `types-lint` | `tsc -b` and `oxlint` are clean | Implement, Extract, Docs |
+| `coverage` | The coverage floor in `vitest.config.ts` was not lowered, nothing new is excluded, and a raised floor is committed | Implement, Extract |
+| `commits` | Conventional Commits; `Assisted-by: Claude Code` in `x-tech-laboratories` repositories and no AI mention anywhere else | every stage that commits |
+| `secrets` | No keys, tokens, private keys or `.env` values in the diff, and no personal names or emails | every stage that edits, and every report |
+| `leftovers` | No debug output, commented-out code, unused exports or TODOs without an issue in the diff | Implement, Extract |
+| `comments` | Each comment in the diff is one plain line in the present tense | Implement, Extract, Docs |
+| `size` | Functions and files over a set length are named for Review (a warning, not a failure) | Implement, Extract |
+| `x-libs` | No direct import of a library X-Libs wraps, such as `drizzle-orm` or `@tanstack/react-table`, and no new copy of an X-Libs widget | Implement, Extract |
+| `dependencies` | A new dependency is named for Review, with its licence, which must suit GPL-3.0-or-later | Implement, Extract |
+| `ci` | The pull request's checks pass | Review |
+
+Review also works from a checklist built from the [Application Standard](https://x-tech-laboratories.github.io/standards/application/),
+the [Design Guidelines](https://x-tech-laboratories.github.io/standards/design/) and the guidelines on
+[readable code](https://x-tech-laboratories.github.io/guidelines/readable-code/) and
+[AI-assisted review](https://x-tech-laboratories.github.io/guidelines/review/). Each finding names a
+file and line; a finding is a suggestion until the user accepts it.
+
+A stage file names its gates in `x-dev-gates`. Gates are plugins (`gate`), so a repository can add its
+own, such as a firmware build.
+
 ## Stage files
 
 Stages are Claude Code agent files in `~/.claude/agents/stage-<name>.md`, so the `/advance` command in
@@ -68,6 +116,8 @@ a terminal session and X-Dev run exactly the same stages. The frontmatter is Cla
 x-dev-order: 2          # place in the pipeline
 x-dev-next: extract     # the stage that normally follows
 x-dev-label: Implement  # the name the page shows
+x-dev-gates: [worktree, tests-kept, tests-pass, types-lint, coverage, commits, secrets, leftovers, comments, size, x-libs, dependencies]
+x-dev-paths: ["**"]     # what the stage may change; Specify has ["tests/**"]
 ```
 
 The Stages section of Settings lists them in order and edits each one in a dialog: its name, model,
@@ -152,6 +202,8 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 - A diff view: a branch's changes by file, with added and removed lines.
 - A GitHub client on Octokit: issues, labels, comments, pull requests and checks, for any app.
 - Git worktrees: make, list, reset and remove one, through `run_program`.
+- Change checks: the gates that are not X-Dev's own (`commits`, `secrets`, `leftovers`, `comments`,
+  `coverage`, `x-libs`, `dependencies`), so every X-app's CI can run them without X-Dev.
 - Markdown files with frontmatter: read and write them, keeping keys the app does not know.
 
 ## Milestones
@@ -160,9 +212,10 @@ Missing from X-Libs, to be built there rather than in X-Dev:
    on X-Libs.
 2. **Stages**: reading and editing the stage files.
 3. **Runs**: items by hand, running a stage through Claude Code, reports, discard; no GitHub yet.
-4. **GitHub**: issues, labels, comments, pull requests and checks.
-5. **Board and item pages**, the diff view, notifications.
-6. **Android and remote daemons**.
+4. **Gates**: the gates and `x-dev check`, then the change checks moved into X-Libs.
+5. **GitHub**: issues, labels, comments, pull requests and checks.
+6. **Board and item pages**, the diff view, notifications.
+7. **Android and remote daemons**.
 
 ## To check before milestone 3
 
