@@ -256,7 +256,9 @@ Other backends, such as OpenCode, can be added as plugins later.
   of its report, running, failed, needs input, or not reached. The current stage's cell is marked and
   holds Run; any cell holds Send back here and, for its last run, Discard. Clicking a cell opens its
   report. Lanes are grouped by repository and can be filtered, and finished items fold away. The
-  Inbox above the lanes holds the proposals waiting for the user.
+  Inbox above the lanes holds the proposals waiting for the user. The board is the page X-Dev opens
+  on. It is drawn in X-Dev for now, on one CSS grid so every column lines up; the swimlane board
+  widget is to move into X-Libs, with X-Tasks' board, once a second app needs lanes.
 - **New item**: two ways in, side by side. **Describe it** takes free text, such as a pasted bug report
   or a few lines of an idea, and an agent fills in the form from it: title, feature or bug, the
   repository it guesses from the text and the repositories X-Dev knows, a body for the issue, and,

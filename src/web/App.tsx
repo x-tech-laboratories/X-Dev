@@ -58,13 +58,13 @@ function SignedInApp() {
 
 function Pages({ me, on_sign_out }: { me: Me | null; on_sign_out?: () => void }) {
   const route = use_route();
-  const [named_section = "items", ...rest] = route.parts;
+  const [named_section = "board", ...rest] = route.parts;
   const feature = page_features.find((candidate) => candidate.id === named_section);
   const is_own = named_section === "settings" || named_section === "history" || (me !== null && own_sections.includes(named_section));
-  const section = feature || is_own ? named_section : "items";
+  const section = feature || is_own ? named_section : "board";
   const page = feature?.pages.find((candidate) => candidate.id === rest[0]) ?? feature?.pages[0];
   const own_labels: Record<string, string> = { settings: "Settings", history: "History", account: "Your account", users: "Users" };
-  const label = feature ? (feature.pages.length < 2 ? feature.label : `${page!.label} · ${feature.label}`) : own_labels[section] ?? "Items";
+  const label = feature ? (feature.pages.length < 2 ? feature.label : `${page!.label} · ${feature.label}`) : own_labels[section] ?? "Board";
   const view_key = route.parts.join("/");
   const is_admin = me !== null && me.role === me.roles.at(-1);
 

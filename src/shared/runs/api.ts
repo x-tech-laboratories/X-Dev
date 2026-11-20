@@ -12,6 +12,10 @@ export const runs_api = {
     params: [{ name: "item_id", schema: id_of("item") }],
   },
   get_run: { description: "One run with its input, transcript and report.", params: [{ name: "id", schema: id_of("run") }] },
+  list_stage_runs: {
+    description: "Lists the latest run of each stage on each item, discarded ones left out, with its state and a one-line summary of its report, as the board shows them.",
+    params: [],
+  },
   list_recent_runs: {
     description: "Lists the latest runs across every item, newest first.",
     params: [{ name: "limit", schema: { type: "integer", minimum: 1, description: "How many runs at most." } }],

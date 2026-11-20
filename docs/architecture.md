@@ -97,6 +97,13 @@ git between a base and the worktree, uncommitted and untracked files included, r
 check and lint for the gates that need them, and gives a result per gate. The runner runs a stage's gates once its
 report arrives and stores the results and the user's overrides on the run; `src/cli/check.ts` is `x-dev-check`.
 
+## Board
+
+`src/web/board/index.tsx` draws the board from three reads: the open items, `list_stage_runs` (the latest run of each
+stage on each item, with a line from its report through `report_summary`), and the stage files. It is one CSS grid,
+each lane's cells laid out with `display: contents`, so every stage column lines up across lanes and the whole board
+scrolls sideways inside itself on a narrow window.
+
 ## History
 
 `src/shared/history/store.ts` keeps a version of every item a write touches through X-Libs `create_history`, one

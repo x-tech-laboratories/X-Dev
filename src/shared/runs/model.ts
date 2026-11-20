@@ -71,6 +71,24 @@ export function parse_report(message: string): ParsedReport | null {
   return next ? { text, next } : null;
 }
 
+// One line saying what a run did, for a board's cell: the first of its report's Done items, else its first line.
+export function report_summary(report: string): string {
+  const done = /\*\*Done:\*\*\s*(?:\n\s*)?-?\s*([^\n]+)/.exec(report)?.[1]?.trim();
+  if (done && done !== "-") return done.replace(/^-\s*/, "");
+  return report.split("\n").find((line) => line.trim() && !line.startsWith("#"))?.trim() ?? "";
+}
+
+// The latest run of one stage on one item, as a board shows it.
+export interface StageRun {
+  item_id: string;
+  stage: string;
+  run_id: string;
+  state: RunState;
+  summary: string;
+  error: string;
+  started_at: string;
+}
+
 // ── Input ────────────────────────────────────────────────────────────────────
 
 export interface RunInputParts {

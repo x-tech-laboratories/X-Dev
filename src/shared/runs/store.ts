@@ -12,7 +12,7 @@ import { items } from "../items/schema.ts";
 import { runs_api } from "./api.ts";
 import { migrations } from "./migrations/index.ts";
 import { gates_cleared, type GateOverride, type GateResult } from "../gates/model.ts";
-import { needs_input, type Question, type Run, type RunState } from "./model.ts";
+import { needs_input, report_summary, type Question, type Run, type RunState, type StageRun } from "./model.ts";
 import { runs, runs_tables } from "./schema.ts";
 
 // ── Reading ──────────────────────────────────────────────────────────────────
@@ -140,6 +140,20 @@ export const runs_feature = define_feature({
     list_runs: (database: SqlDatabase, item_id: string): Run[] =>
       drizzle_of(database).select().from(runs).where(eq(runs.item_id, item_id)).orderBy(desc(runs.started_at)).all().map(as_run),
     get_run: (database: SqlDatabase, id: string): Run => find_run(database, id),
+    list_stage_runs: (database: SqlDatabase): StageRun[] => {
+      const rows = drizzle_of(database)
+        .select({ item_id: runs.item_id, stage: runs.stage, run_id: runs.id, state: runs.state, report: runs.report, error: runs.error, started_at: runs.started_at })
+        .from(runs)
+        .where(ne(runs.state, "discarded"))
+        .orderBy(desc(runs.started_at))
+        .all();
+      const latest = new Map<string, StageRun>();
+      for (const row of rows) {
+        const key = `${row.item_id} ${row.stage}`;
+        if (!latest.has(key)) latest.set(key, { item_id: row.item_id, stage: row.stage, run_id: row.run_id, state: row.state as RunState, summary: report_summary(row.report), error: row.error, started_at: row.started_at });
+      }
+      return [...latest.values()];
+    },
     list_recent_runs: (database: SqlDatabase, limit: number): Run[] => drizzle_of(database).select().from(runs).orderBy(desc(runs.started_at)).limit(limit).all().map(as_run),
     update_run_report: (database: SqlDatabase, id: string, report: string): void => {
       const run = find_run(database, id);
