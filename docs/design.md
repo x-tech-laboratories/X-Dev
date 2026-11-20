@@ -193,7 +193,7 @@ stage folder, so it never edits the stages Claude Code runs.
 
 Each stage runs on its own model, set by the file's `model` key and Claude Code's `effort` key for the
 reasoning effort. The Stages section shows them as a table of stage, model and effort, so the whole
-pipeline's choice reads at a glance, for example Fable for Triage, Plan and Review and Opus for the
+pipeline's choice reads at a glance, for example Sonnet for Triage, Fable for Plan and Review and Opus for the
 rest. A model is picked from the models the agent backend offers, by alias or exact id.
 
 - An item can override a stage's model for its next run, such as a hard bug planned on a stronger
