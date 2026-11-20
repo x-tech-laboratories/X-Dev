@@ -39,7 +39,7 @@ export function within_limit(text: string, limit = diff_limit_in_characters): { 
 }
 
 // The worktree an item's runs work in on this computer, or empty when it has none.
-function worktree_of(item: Pick<Item, "repository" | "branch">, repositories: Record<string, string>): string {
+export function worktree_of(item: Pick<Item, "repository" | "branch">, repositories: Record<string, string>): string {
   const folder = repositories[item.repository];
   if (!folder || !item.branch) return "";
   const worktree = join(folder, ".claude", "worktrees", item.branch.replace(/^worktree-/, ""));

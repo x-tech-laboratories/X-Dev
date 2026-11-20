@@ -166,8 +166,9 @@ model with `sum_runs_by`. A run's tokens come from the result line's `usage`, ad
 changes view (`src/web/changes/ChangesView.tsx`) asks the runner for `get_changes`, which `src/server/item_diff.ts` reads
 with git in the item's worktree against the run's or the item's start, new files included, each with a fingerprint of
 its content; `get_file_change` for one file's diff with every line, parsed by `src/shared/diff/parse.ts` on parse-diff
-and laid out side by side or in one column with word marks and folds by `src/shared/diff/rows.ts` on jsdiff; and
-`revert_file`. `src/web/diff/` draws the file tree on X-Libs' `Tree` and the file's diff. Reviewed marks are the store
+and laid out side by side or in one column with word marks and folds by `src/shared/diff/rows.ts` on jsdiff;
+`revert_file`; and `list_files` and `get_file` for every file in the worktree, which `src/server/worktree_files.ts`
+reads through git and confines to the worktree. `src/web/diff/` draws the file tree on X-Libs' `Tree` and the file's diff. Reviewed marks are the store
 call `set_file_reviewed` on the run; `list_run_changes` counts each finished run's lines, files and reviewed files for
 the board.
 

@@ -107,6 +107,10 @@ export interface RunnerMethods {
   get_changes: (item_id: string, scope: ChangeScope, run_id: string) => Promise<ChangeSet>;
   // One changed file's diff with every unchanged line kept.
   get_file_change: (item_id: string, scope: ChangeScope, run_id: string, path: string) => Promise<FileChange>;
+  // Every file in the item's worktree, changed or not, by path.
+  list_files: (item_id: string) => Promise<WorktreeFiles>;
+  // One file's text in the item's worktree, read-only; binary and very large files come back without it.
+  get_file: (item_id: string, path: string) => Promise<WorktreeFile>;
   // Puts one file back as it was when the scope started, noting it in the run and the status sheet.
   revert_file: (item_id: string, scope: ChangeScope, run_id: string, path: string) => Promise<void>;
   // The lines each finished run added and removed, by run id, for the runs whose worktree is on this computer.
@@ -136,6 +140,22 @@ export interface ChangeSet {
   files: ChangedFile[];
   // Why there is nothing to show, such as no worktree yet; empty otherwise.
   problem: string;
+}
+
+export interface WorktreeFiles {
+  paths: string[];
+  // Whether there were more files than are listed.
+  truncated: boolean;
+}
+
+export interface WorktreeFile {
+  path: string;
+  size: number;
+  // Whether the path is a symlink to another file inside the worktree.
+  symlink: boolean;
+  // Null when the file is not shown, as reason says.
+  text: string | null;
+  reason: "" | "binary" | "too_large";
 }
 
 export interface FileChange {
@@ -215,5 +235,7 @@ export const runner_method_names = [
   "get_changes",
   "get_file_change",
   "revert_file",
+  "list_files",
+  "get_file",
   "list_run_changes",
 ] as const satisfies readonly (keyof RunnerMethods)[];

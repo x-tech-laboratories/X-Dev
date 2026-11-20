@@ -14,7 +14,8 @@ import { check_item, is_repository, issue_link, item_kinds, repository_of_remote
 import { answers_input, branch_name_of, build_run_input, needs_input, parse_report, type Run, type StreamResult } from "../shared/runs/model.ts";
 import { read_runner_settings, type ItemDraft, type RunnerMethods, type RunnerSettings, type StartOptions } from "../shared/runs/runner.ts";
 import { add_run_tokens, finish_run, find_run, insert_run, latest_report, runs_in_state, set_item_fields, update_run } from "../shared/runs/store.ts";
-import { read_changes, read_file_change, read_run_changes, revert_file } from "./item_diff.ts";
+import { read_changes, read_file_change, read_run_changes, revert_file, worktree_of } from "./item_diff.ts";
+import { list_worktree_files, read_worktree_file } from "./worktree_files.ts";
 import { checkout_state, run_gates } from "./gates.ts";
 import { done, type Stage, type StagesMethods } from "../shared/stages/model.ts";
 import { find_or_open_issue, github_account, github_sign_out, start_github_sign_in } from "./github.ts";
@@ -248,6 +249,13 @@ export function create_runner({ database, stages, run_tools, folder, after_write
     current = { run_id: run.id, controller, finished, live };
   }
 
+  // The item's worktree on this computer, refusing an item that has none yet.
+  function item_worktree(item_id: string): string {
+    const worktree = worktree_of(item_of(item_id), read_settings().repositories);
+    if (!worktree) throw new Error("the item has no worktree on this computer yet; its first run makes one");
+    return worktree;
+  }
+
   // The session of the run under way, refusing a run that is not.
   function live_of(run_id: string): LiveRun {
     if (current?.run_id !== run_id || !current.live.is_open()) throw new Error("that run is not under way");
@@ -443,6 +451,8 @@ export function create_runner({ database, stages, run_tools, folder, after_write
     },
     get_changes: (item_id, scope, run_id) => read_changes({ database: database(), item: item_of(item_id), repositories: read_settings().repositories }, scope, run_id),
     get_file_change: (item_id, scope, run_id, path) => read_file_change({ database: database(), item: item_of(item_id), repositories: read_settings().repositories }, scope, run_id, path),
+    list_files: async (item_id) => list_worktree_files(item_worktree(item_id)),
+    get_file: async (item_id, path) => read_worktree_file(item_worktree(item_id), path),
     revert_file: async (item_id, scope, run_id, path) => {
       if (current && find_run(database(), current.run_id).item_id === item_id) throw new Error("a run on this item is under way; stop it or let it finish first");
       const item = item_of(item_id);

@@ -159,3 +159,27 @@ export function FileDiff({ file, layout }: FileDiffProps) {
     </div>
   );
 }
+
+// ── Plain file ───────────────────────────────────────────────────────────────
+
+// A file's text read-only, each line numbered, with no diff columns.
+export function FileContent({ path, text }: { path: string; text: string }) {
+  const lines = text.replace(/\n$/, "").split("\n");
+  return (
+    <div className="diff-scroll">
+      <table className="diff-lines diff-plain" aria-label={`Contents of ${path}`}>
+        <tbody>
+          {lines.map((line, index) => (
+            <tr key={index}>
+              <td className="diff-number muted">{index + 1}</td>
+              <td className="diff-text">
+                <code>{line}</code>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+

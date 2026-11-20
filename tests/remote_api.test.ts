@@ -43,6 +43,8 @@ function fake_runner() {
     get_changes: vi.fn(),
     get_file_change: vi.fn(),
     revert_file: vi.fn(),
+    list_files: vi.fn(),
+    get_file: vi.fn(),
     list_run_changes: vi.fn(async () => ({})),
     add_item: vi.fn(async () => ({ id: "item-1", repository: "x-tech-laboratories/X-Dev", issue: { number: 12, opened: true }, checkout_added: false, problem: "" })),
     take_proposal: vi.fn(),

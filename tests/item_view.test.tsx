@@ -60,6 +60,8 @@ function fake_page(with_runner = true) {
     get_changes: vi.fn(async (_item_id: string, _scope: ChangeScope, _run_id: string): Promise<ChangeSet> => ({ base: "abc123", run_id: "", files: [changed_file], problem: "" })),
     get_file_change: vi.fn(async () => ({ file: parse_unified_diff(sample_diff)[0]!, truncated: false })),
     revert_file: vi.fn(async () => undefined),
+    list_files: vi.fn(async () => ({ paths: ["README.md", "docs/guide.md", "logo.png", "src/board.ts"], truncated: true })),
+    get_file: vi.fn(async (_item_id: string, path: string) => (path === "logo.png" ? { path, size: 9, symlink: false, text: null, reason: "binary" as const } : { path, size: 20, symlink: false, text: "# Guide\nRead me.\n", reason: "" as const })),
     list_run_changes: vi.fn(async () => ({})),
   };
   // Adding and taking run the daemon's own code over the recorded calls, as they do on the daemon.
@@ -261,6 +263,31 @@ describe("an item's changes and runs", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Unified" }));
     const unified = await screen.findByRole("table", { name: "Changes to src/board.ts" });
     expect(within(unified).getByText("new").closest("tr")!.className).toBe("tone-fill-good");
+  });
+
+  it("shows every file with the changed ones marked, and an unchanged file's text read-only", async () => {
+    const { store, runner } = fake_page();
+    const id = store.save_item(item);
+    render(<App />);
+    go(`#/items/${id}`);
+
+    expect(await screen.findByRole("tree", { name: "Changed files" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "All files" }));
+    const tree = await screen.findByRole("tree", { name: "All files" });
+    expect(runner.list_files).toHaveBeenCalledWith(id);
+    expect(within(tree).getByTitle("Modified")).toBeTruthy();
+    expect(within(tree).queryByText("guide.md")).toBeNull();
+    expect(screen.getByText(/only the first 4 files are listed/)).toBeTruthy();
+
+    fireEvent.click(within(tree).getByText("docs/"));
+    fireEvent.click(within(tree).getByText("guide.md"));
+    const contents = await screen.findByRole("table", { name: "Contents of docs/guide.md" });
+    expect(within(contents).getByText("Read me.")).toBeTruthy();
+    expect(screen.getByText("Unchanged")).toBeTruthy();
+    expect(runner.get_file).toHaveBeenCalledWith(id, "docs/guide.md");
+
+    fireEvent.click(within(tree).getByText("logo.png"));
+    expect(await screen.findByText(/A binary file/)).toBeTruthy();
   });
 
   it("says why there are no changes to show", async () => {

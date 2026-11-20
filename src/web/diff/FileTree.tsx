@@ -1,6 +1,6 @@
-// The changed files as a folder tree on X-Libs' Tree: folders first and folding, each file with a letter for how it
-// changed and its added and removed lines, walked with the arrow keys and picked with Enter or a click, narrowed by a
-// filter box that keeps the folders of the files it matches.
+// Files as a folder tree on X-Libs' Tree: folders first and folding, each changed file with a letter for how it changed
+// and its added and removed lines, walked with the arrow keys and picked with Enter or a click, narrowed by a filter box
+// that keeps the folders of the files it matches.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
@@ -16,9 +16,10 @@ import { Counts, status_words } from "./DiffView.tsx";
 
 export interface TreeFile {
   path: string;
-  status: DiffFileStatus;
-  additions: number;
-  deletions: number;
+  // Missing for a file that did not change.
+  status?: DiffFileStatus;
+  additions?: number;
+  deletions?: number;
 }
 
 interface Row extends TreeItem {
@@ -56,22 +57,35 @@ interface FileTreeProps {
   on_select: (path: string) => void;
   // Anything to show beside a file's counts, such as a reviewed mark.
   extra?: (file: TreeFile) => ReactNode;
+  // Folders that start folded, such as those holding no changed file; none unless given.
+  folded?: (folder: string) => boolean;
+  label?: string;
 }
 
-export function FileTree({ files, selected, on_select, extra }: FileTreeProps) {
+// The folders the files sit in, by path.
+function folders_of(files: TreeFile[]): string[] {
+  const folders = new Set<string>();
+  for (const file of files) {
+    const parts = file.path.split("/").slice(0, -1);
+    parts.forEach((_, index) => folders.add(parts.slice(0, index + 1).join("/")));
+  }
+  return [...folders];
+}
+
+export function FileTree({ files, selected, on_select, extra, folded, label = "Changed files" }: FileTreeProps) {
   const [filter, set_filter] = useState("");
-  const [collapsed, set_collapsed] = useState<Set<string>>(new Set());
+  const [collapsed, set_collapsed] = useState<Set<string>>(() => new Set(folded ? folders_of(files).filter(folded).map(folder_id) : []));
   const needle = filter.trim().toLowerCase();
   const shown = needle ? files.filter((file) => file.path.toLowerCase().includes(needle)) : files;
   return (
     <div className="file-tree">
       <SearchBox label="Filter files" value={filter} on_input={set_filter} />
       {shown.length === 0 ? (
-        <p className="muted small">{files.length ? "No file matches." : "No files changed."}</p>
+        <p className="muted small">{files.length ? "No file matches." : "No files."}</p>
       ) : (
         <Tree<Row>
           items={tree_rows(shown)}
-          label="Changed files"
+          label={label}
           collapsed={collapsed}
           on_collapsed_change={set_collapsed}
           selected_id={selected ? `file:${selected}` : null}
@@ -79,10 +93,10 @@ export function FileTree({ files, selected, on_select, extra }: FileTreeProps) {
           name_of={(row) => row.name}
           render_item={(row) => (row.file ? <span className="tree-name">{row.name}</span> : <span>{row.name}/</span>)}
           render_extra={(row) =>
-            row.file && (
+            row.file?.status && (
               <>
                 {extra?.(row.file)}
-                <Counts additions={row.file.additions} deletions={row.file.deletions} />
+                <Counts additions={row.file.additions ?? 0} deletions={row.file.deletions ?? 0} />
                 <Badge tone={status_words[row.file.status][2]} title={status_words[row.file.status][0]}>
                   {status_words[row.file.status][1]}
                 </Badge>

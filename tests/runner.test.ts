@@ -384,6 +384,19 @@ describe("a run's changes", () => {
     expect(store.get_item(id).status.decisions).toBe("- The user reverted made-by-run.txt to how it was before the Plan run; do not bring the change back.");
   });
 
+  it("lists and reads every file in the item's worktree, and says when there is none yet", async () => {
+    const { runner, item } = await setup();
+    const fresh = item("Not run yet.");
+    await expect(runner.methods.list_files(fresh)).rejects.toThrow("has no worktree on this computer yet");
+
+    const id = item("WRITE-FILE STATUS");
+    await runner.methods.start_run(id, {});
+    await runner.idle();
+    expect((await runner.methods.list_files(id)).paths).toEqual(["made-by-run.txt", "README.md"]);
+    expect(await runner.methods.get_file(id, "README.md")).toMatchObject({ text: "# Test\n", reason: "" });
+    await expect(runner.methods.get_file(id, "../README.md")).rejects.toThrow("not a path inside the worktree");
+  });
+
   it("refuses to revert while a run on the item is under way", async () => {
     const { store, runner, item } = await setup();
     const id = item("SLOW");

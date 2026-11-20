@@ -170,6 +170,14 @@ export const runner_api: ApiSpec<RunnerMethods> = {
     description: "One changed file's diff in the scope, as hunks of numbered lines with every unchanged line kept, so a reader can show it whole.",
     params: [{ name: "item_id", schema: id_of("item") }, { name: "scope", schema: { type: "string", enum: ["run", "item"], description: "run for what the run changed since it started, item for everything since the item's work started." } }, { name: "run_id", schema: text("The run for the run scope; empty for the item's latest run.") }, { name: "path", schema: text("The file's path in the worktree, as get_changes lists it.") }],
   },
+  list_files: {
+    description: "Lists every file in the item's worktree by path, changed or not: what git tracks there and new files it would track, ignored files, .git and node_modules left out, up to 20,000 paths.",
+    params: [{ name: "item_id", schema: id_of("item") }],
+  },
+  get_file: {
+    description: "Reads one file in the item's worktree, read-only: its size and text, or no text when it is binary or over a megabyte. A path that leads out of the worktree, by .., an absolute path or a symlink, or into .git or node_modules, is refused.",
+    params: [{ name: "item_id", schema: id_of("item") }, { name: "path", schema: text("The file's path in the worktree, as list_files gives it.") }],
+  },
   revert_file: {
     description: "Puts one changed file back as it was when the scope started: restored from that commit, or removed when the change added it. Refused while a run on the item is under way. The run and the item's status sheet note it, so later stages do not bring the change back.",
     params: [{ name: "item_id", schema: id_of("item") }, { name: "scope", schema: { type: "string", enum: ["run", "item"], description: "run for what the run changed since it started, item for everything since the item's work started." } }, { name: "run_id", schema: text("The run for the run scope; empty for the item's latest run.") }, { name: "path", schema: text("The file's path in the worktree, as get_changes lists it.") }],

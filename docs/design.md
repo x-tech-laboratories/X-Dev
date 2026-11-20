@@ -370,7 +370,11 @@ The way to show and confirm what an agent changed, on the item page and as a tab
   Committed, uncommitted and new files all count. It reads again while a run edits.
 - On the left, the changed files as a folder tree: folders fold, each file has a letter for added,
   modified, deleted or renamed and its added and removed lines, the arrow keys walk it, and a box
-  filters it by name.
+  filters it by name. **Changed | All files** switches to every file in the worktree, the changed ones
+  still marked and the folders holding none folded; an unchanged file picked there shows its text
+  read-only, numbered, in place of the diff. It lists what git tracks or would track, never `.git` or
+  `node_modules`, reads nothing outside the worktree, even through a symlink, and shows no binary file
+  or one over a megabyte.
 - On the right, the picked file's diff side by side, old on the left and new on the right, with line
   numbers, changed lines tinted and the words that changed within a line tinted again, and unchanged
   stretches folded behind "Show N more unchanged lines". A switch shows it in one column, which it
