@@ -44,7 +44,7 @@ Tracking is not a stage: the item and its GitHub issue are the record every stag
    the latest report, and the notes the user added since. Earlier reports and runs' output are left
    out.
 3. It runs the stage's agent in the item's worktree, one run at a time across the whole app, and
-   streams the output to the page.
+   streams its steps to the page as a live transcript (see [Following a run](#following-a-run)).
 4. The agent ends with a report block (below). The daemon saves it, posts it to the issue as a
    comment and moves the issue's `stage:*` label.
 5. The user reads the report and can edit it before the next stage reads it.
@@ -53,7 +53,38 @@ Tracking is not a stage: the item and its GitHub issue are the record every stag
    discard never needs a force-push.
 
 A run that fails, is stopped or loses its daemon ends as failed, keeps its output, and changes
-nothing else; the user discards it or runs the stage again.
+nothing else; the user discards it or retries it.
+
+### Following a run
+
+- The transcript shows the agent's thinking folded to one line (live while it streams), its text as
+  markdown, each tool call as a row naming the tool and its file or command that opens to the whole
+  input and result, an edit as a small diff, failed calls marked, and the user's own messages in place.
+  It follows the newest step until the reader scrolls up, with **Jump to Latest** back. A header gives
+  the run's state, model, time, tokens and cost.
+- It is on the item page for the running run and every past one, and in a dialog from the card's
+  **Watch…** while it runs or **Open Transcript** in its menu.
+- The transcript is kept with the run, each block whole once it ends and the earliest steps dropped
+  past a size, so a finished run replays the same view; the old plain output stays one click away.
+  It stays on this computer and on devices the runs sync to, and is never posted to GitHub.
+- **Writing to a run**: a box under the transcript writes a message into the session, shown as not
+  read yet until the agent reads it after its current step. It stays in the run and is added to the
+  status sheet's Decisions, so later stages see how the user steered.
+- **Stop** ends the run at once as stopped, from the transcript, the item page or the card.
+  **Interrupt** halts the current step without ending the session, which then waits, holding the run
+  slot, for the user's next message. Neither asks first.
+
+### Retrying
+
+- A run that failed, was held by a gate or was stopped offers **Retry** in place of Run, on the card,
+  the item page and the transcript, with the model picker as for Run. A run held only by pull request
+  checks still running is not offered it, since it clears by itself.
+- Retry starts a new run of the same stage on the worktree as the failed run left it, its input
+  carrying a **Previous attempt** section: how it ended, the error or each failed gate with its
+  findings, and its report if it wrote one; never its transcript.
+- **Retry from Clean** discards the failed run first, after the same confirm as Discard, and runs the
+  stage afresh without that section.
+- A retry names the run it retries, and the timeline and Runs page show it as "Attempt 2 of Implement".
 
 ### Clarifying questions
 
@@ -211,23 +242,32 @@ Agent backends are provider plugins (`agent_backend`). The bundled one runs Clau
 
 ```
 claude -p --agents <run>/agents.json --agent stage-<id> --session-id <uuid> --output-format stream-json
-  --verbose --permission-mode auto
+  --verbose --include-partial-messages --input-format stream-json --replay-user-messages --permission-mode auto
 ```
 
-in the item's worktree, with the input on standard input, through X-Libs' `run_program` (no shell,
-its own process group, stopped by an abort signal). It runs on the user's own Claude login.
+in the item's worktree. It runs on the user's own Claude login.
 
 - The stage goes in as a JSON agent definition (`--agents`), so it runs from whichever folder holds
   the stage files; Claude Code honours its model, effort, tools and refused tools from there, and a
   model given for one run replaces the stage's in that file.
-- The session id is X-Dev's own, so a run waiting for answers resumes with `--resume <uuid>` and the
-  answers on standard input.
+- The session id is X-Dev's own, so a run waiting for answers resumes with `--resume <uuid>`.
+- Input is stream-json and stays open while the run works: the stage input, or the answers, is the
+  first user message, the user's messages are written in as it runs, each with an id the session
+  echoes once it has read it, and `command_lifecycle` lines say when each is finished with
+  (`completed`, or `cancelled` by an interrupt). A
+  `control_request` of subtype `interrupt` halts the current step and is answered by a
+  `control_response`. X-Dev closes the input once a turn's `result` arrives with no message of its own
+  still waiting and the run not halted, and the session then ends.
+- Output carries `stream_event` lines with the blocks' partial pieces (`thinking_delta`, `text_delta`,
+  `input_json_delta`), whole `assistant` and `user` messages, and one `result` per turn with the
+  final text, `is_error` and the session's cost so far; the report block is read from the last
+  turn's text.
+- The process is X-Dev's own line program (`src/server/line_program.ts`, X-Libs' `run_program` with
+  an open input: no shell, its own process group, stopped by an abort signal).
 - Where a managed MCP config is present, Claude Code refuses both `--strict-mcp-config` and
   `--mcp-config`, so X-Dev's run tools are not an MCP server: they are a small HTTP server on
   127.0.0.1 that the agent calls with curl, the address and the run's token in its environment
   (`X_DEV_RUN_URL`, `X_DEV_RUN_TOKEN`) and the way to call them added to every run's input.
-- The stream's last message is `{"type": "result"}` with the final text, `is_error`,
-  `total_cost_usd` and the session id; the report block is read from that text.
 - The permission mode is a setting, `auto` unless set, so every action is checked with no one
   watching.
 
@@ -292,8 +332,9 @@ Other backends, such as OpenCode, can be added as plugins later.
   and that stage's run. It names the repository and issue and the item, then the run's state, the
   first line of its report or what failed, its model, changed lines, cost and age, its gates, a
   waiting run's question with its choices, the pull request and its checks, and, once it has runs, a
-  dot per stage for the way the item came. It holds Run with a model picker, and a menu to open the
-  item, send it back to an earlier stage and discard its last run. Clicking a card, or Enter on it,
+  dot per stage for the way the item came. It holds Run with a model picker, Retry in its place after a
+  failed or stopped run, Watch, Interrupt and Stop while it runs, and a menu to open the item, its report
+  or its transcript, retry from clean, send it back to an earlier stage and discard its last run. Clicking a card, or Enter on it,
   opens the item at that run; dragging it to an earlier column, or Alt and Left, sends it back after
   a confirm, and no later column takes a dragged card, since stages move on only by a run's report.
   Finished items show in a Done column when asked; on a phone the columns stack. The board fills
@@ -307,8 +348,9 @@ Other backends, such as OpenCode, can be added as plugins later.
   when the agent found none, and adds the checkout to Repositories when the item is saved. The filled form opens for the user to check and change before anything is saved. **Fill in
   the form** opens the same form empty. The agent's run is short and cheap (a setting picks its
   model, Haiku unless set), and it changes nothing until the user saves.
-- **Item**: the issue and its status sheet, then the runs as a timeline, each with its report (editable), its output and
-  its cost; the branch's diff; the pull request and its checks; notes for the next run.
+- **Item**: the issue and its status sheet, then the runs as a timeline, each with its report (editable), its live
+  transcript, Stop, Interrupt or Retry, and its cost; the branch's diff; the pull request and its checks; notes for
+  the next run.
 - **Runs**: every run across items in a table of item, stage, model, state, start, duration, tokens,
   cost and gates, filtered by words and state, a row opening its item at that run; above it the tokens
   and cost summed by stage and by model.
@@ -368,6 +410,30 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 5. **GitHub**: issues, labels, comments, pull requests and checks.
 6. **Board and item pages**, the diff view, notifications.
 7. **Android and remote daemons**.
+
+## Checked for the live run
+
+Each checked with one real run of Claude Code 2.1.329 on Haiku in a throwaway git repository, about
+five cents in all, through a Node script that spoke the protocol the runner speaks:
+
+- `claude -p --agents <file> --agent stage-probe --session-id <uuid> --output-format stream-json
+  --verbose --include-partial-messages --input-format stream-json --replay-user-messages
+  --permission-mode default --permission-prompt-tool stdio`, with `X_DEV_RUN_URL` and
+  `X_DEV_RUN_TOKEN` set, runs the agent from the definition, streams partial blocks and takes
+  user messages for turn after turn until its input closes.
+- A message written while a tool runs is reported `queued`, read and echoed with `isReplay` right
+  after that tool's result, `started`, answered in the same turn, and `completed` before the turn's
+  `result`; the turn's own message is `completed` just after it.
+- A `control_request` of subtype `interrupt` sent during a 40-second command is answered at once,
+  the turn ends with a `result` of `error_during_execution` and `terminal_reason` `aborted_tools`
+  after a `[Request interrupted by user for tool use]` user message, the message that turn answered is
+  reported `cancelled` rather than `completed`, and the session stays open: the next message is
+  answered as usual.
+- Each `result`'s `total_cost_usd` is the session's cost so far, not the turn's.
+- Through X-Dev's runner itself, on Haiku with a one-line probe stage, about three cents: a message
+  written during a 20-second command was read after it and obeyed in the report; an interrupt during
+  the command halted it in about a quarter of a second and the next message finished the run; a run
+  that gave no report failed, and its Retry, carrying the Previous attempt section, finished.
 
 ## Checked for milestone 7
 

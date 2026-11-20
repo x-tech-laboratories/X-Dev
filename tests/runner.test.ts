@@ -4,14 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { create_github_sync, type GitHubSync } from "../src/server/github_sync.ts";
 import { create_run_tools, type RunTools } from "../src/server/run_tools.ts";
 import { checkout_names, checkout_of_reply, create_runner, draft_of_reply, find_checkout, match_repository, search_roots, type Runner } from "../src/server/runner.ts";
 import { create_stage_files } from "../src/server/stage_files.ts";
+import { runner_api } from "../src/shared/runs/api.ts";
+import { runner_method_names } from "../src/shared/runs/runner.ts";
+import { read_transcript } from "../src/shared/runs/transcript.ts";
 import { insert_run, update_run } from "../src/shared/runs/store.ts";
 import { bind_methods, open_store } from "../src/shared/store.ts";
+
+// Each test runs a real stand-in agent process, which takes longer while the whole suite runs at once.
+vi.setConfig({ testTimeout: 30_000 });
 
 const fake_claude = join(import.meta.dirname, "fixtures", "fake_claude.mjs");
 const fake_gh = join(import.meta.dirname, "fixtures", "fake_gh.mjs");
@@ -223,6 +229,130 @@ describe("the runner", () => {
     expect(() => runner.methods.answer_run(waiting, "Lanes.")).toThrow("started on another computer");
     await expect(runner.methods.discard_run(waiting)).rejects.toThrow("started on another computer");
     expect(store.get_run(waiting).state).toBe("waiting");
+  });
+});
+
+// Waits until the run's saved transcript shows the check passing.
+async function until(check: () => boolean): Promise<void> {
+  for (let tries = 0; tries < 200 && !check(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+  if (!check()) throw new Error("it never happened");
+}
+
+describe("a live run", () => {
+  it("keeps a transcript of thinking, text, tool calls with their results and the stage input", async () => {
+    const { store, runner, item } = await setup();
+    const run_id = await runner.methods.start_run(item("Plan it. STATUS"), {});
+    await runner.idle();
+
+    const transcript = read_transcript(store.get_run(run_id).transcript);
+    expect(transcript).toMatchObject({ model: "claude-fake-1", activity: "ended", dropped: 0 });
+    expect(transcript.entries.map((entry) => entry.kind)).toEqual(["user", "thinking", "text", "tool", "text"]);
+    expect(transcript.entries[0]).toMatchObject({ kind: "user", role: "input", pending: false });
+    expect(transcript.entries[1]).toMatchObject({ kind: "thinking", text: "I should look at the item first.", streaming: false });
+    expect(transcript.entries[3]).toMatchObject({ kind: "tool", name: "Bash", input: { command: "git status" }, result: "nothing to commit", is_error: false });
+    expect(transcript.entries[4]).toMatchObject({ kind: "text", text: expect.stringContaining("## Plan handoff") });
+  });
+
+  it("writes the user's message into the session, which reads it after its step, and notes it in Decisions", async () => {
+    const { store, runner, item } = await setup();
+    const id = item("LISTEN STATUS");
+    const run_id = await runner.methods.start_run(id, {});
+    await until(() => read_transcript(store.get_run(run_id).transcript).entries.some((entry) => entry.kind === "tool" && entry.input.command === "sleep 30"));
+
+    expect(() => runner.methods.interject_run(run_id, "  ")).toThrow("write the message first");
+    runner.methods.interject_run(run_id, "Keep the lanes narrow.");
+    await runner.idle();
+
+    const run = store.get_run(run_id);
+    const entries = read_transcript(run.transcript).entries;
+    expect(entries.find((entry) => entry.kind === "user" && entry.role === "interjection")).toMatchObject({ text: "Keep the lanes narrow.", pending: false });
+    expect(entries.some((entry) => entry.kind === "text" && entry.text === "Heard: Keep the lanes narrow.")).toBe(true);
+    expect(run).toMatchObject({ state: "done", interjections: [{ text: "Keep the lanes narrow." }] });
+    expect(store.get_item(id).status.decisions).toBe("- The user told Plan while it ran: Keep the lanes narrow.");
+    expect(() => runner.methods.interject_run(run_id, "Too late.")).toThrow("that run is not under way");
+  });
+
+  it("halts the current step on an interrupt and goes on with the user's next message", async () => {
+    const { store, runner, item } = await setup();
+    const run_id = await runner.methods.start_run(item("SLOW STATUS"), {});
+    await until(() => read_transcript(store.get_run(run_id).transcript).entries.some((entry) => entry.kind === "tool" && entry.input.command === "sleep 30"));
+
+    await runner.methods.interrupt_run(run_id);
+    await until(() => read_transcript(store.get_run(run_id).transcript).activity === "paused");
+    expect(store.get_run(run_id).state).toBe("running");
+    expect(runner.methods.get_runner().running_run_id).toBe(run_id);
+
+    runner.methods.interject_run(run_id, "Skip the slow part.");
+    await runner.idle();
+    const run = store.get_run(run_id);
+    const entries = read_transcript(run.transcript).entries;
+    expect(entries.some((entry) => entry.kind === "notice" && entry.text.startsWith("Interrupted"))).toBe(true);
+    expect(entries.some((entry) => entry.kind === "text" && entry.text === "Going on after: Skip the slow part.")).toBe(true);
+    expect(run).toMatchObject({ state: "done", cost_usd: 0.5, input_tokens: 240 });
+  });
+
+  it("describes each call on a live run for other programs", () => {
+    for (const name of ["interject_run", "interrupt_run", "retry_run"] as const) {
+      const spec = runner_api[name];
+      expect(runner_method_names).toContain(name);
+      expect(spec.description.length).toBeGreaterThan(40);
+      expect(spec.params[0]!.name).toBe("run_id");
+    }
+  });
+
+  it("refuses to interrupt a run that is not under way", async () => {
+    const { runner } = await setup();
+    expect(() => runner.methods.interrupt_run("nothing")).toThrow("that run is not under way");
+  });
+});
+
+describe("retrying a stage", () => {
+  it("runs the stage again on the worktree as it was, telling the agent how the last attempt ended", async () => {
+    const { store, runner, checkout, item } = await setup();
+    const id = item("WRITE-FILE Plan it, leaving the status sheet as it was.");
+    const failed = await runner.methods.start_run(id, {});
+    await runner.idle();
+    expect(store.get_run(failed).state).toBe("failed");
+
+    store.save_item({ id, title: "Board with swimlanes", repository, body: "Plan it. STATUS", stage: "plan", issue_number: 7 });
+    const retry = await runner.methods.retry_run(failed, { model: "haiku" });
+    await runner.idle();
+
+    const run = store.get_run(retry);
+    expect(run).toMatchObject({ stage: "plan", model: "haiku", retry_of: failed, attempt: 2, state: "done" });
+    expect(run.input).toContain("## Previous attempt");
+    expect(run.input).toContain("- status: the run did not update the status sheet");
+    expect(run.input).toContain("Its report:\n\n## Plan handoff");
+    expect(store.get_run(failed).state).toBe("failed");
+    expect(existsSync(join(checkout, ".claude", "worktrees", "item-7", "made-by-run.txt"))).toBe(true);
+    await expect(runner.methods.retry_run(retry, {})).rejects.toThrow("only a failed or stopped run can be retried");
+  });
+
+  it("from clean discards the failed run first and starts without the last attempt's story", async () => {
+    const { store, runner, checkout, item } = await setup();
+    const id = item("WRITE-FILE NO-REPORT");
+    const failed = await runner.methods.start_run(id, {});
+    await runner.idle();
+    store.save_item({ id, title: "Board with swimlanes", repository, body: "Plan it. STATUS", stage: "plan", issue_number: 7 });
+
+    const retry = await runner.methods.retry_run(failed, { clean: true });
+    await runner.idle();
+
+    expect(store.get_run(failed).state).toBe("discarded");
+    expect(store.get_run(retry)).toMatchObject({ retry_of: failed, attempt: 2 });
+    expect(store.get_run(retry).input).not.toContain("## Previous attempt");
+    expect(existsSync(join(checkout, ".claude", "worktrees", "item-7", "made-by-run.txt"))).toBe(false);
+  });
+
+  it("retries only the stage's latest run", async () => {
+    const { runner, item } = await setup();
+    const id = item("NO-REPORT");
+    const first = await runner.methods.start_run(id, {});
+    await runner.idle();
+    await runner.methods.start_run(id, {});
+    await runner.idle();
+
+    await expect(runner.methods.retry_run(first, {})).rejects.toThrow("only the stage's latest run can be retried");
   });
 });
 

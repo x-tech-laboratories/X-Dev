@@ -114,9 +114,14 @@ to admins only.
 A run is a row in `runs` (`src/shared/runs/`): the stage, its state, the model, the agent's session id, the commit and
 status sheet it started from, its input, its transcript, its report and the stage that report names next, its
 questions and answers, and its cost. `src/server/runner.ts` starts one at a time: it makes the item's worktree, writes
-the stage as a JSON agent definition beside the runner's settings, runs `claude -p` through X-Libs
-`run_program`, reads the stream-json output into the transcript with `read_stream_line`, and on the result either
-waits for answers, moves the item to the stage its report names, or fails the run saying why. `src/server/run_tools.ts`
+the stage as a JSON agent definition beside the runner's settings, and hands the session to `src/server/live_run.ts`,
+which runs `claude -p` with stream-json both ways (`src/server/claude_stream.ts` over `src/server/line_program.ts`),
+writes the stage input and the user's messages in, sends an interrupt, folds the stream into the run's transcript
+(`src/shared/runs/transcript.ts`) and plain output, saving both as it goes, and closes the input once a turn ends with
+nothing more to say. On the last result the runner either waits for answers, moves the item to the stage its report
+names, or fails the run saying why. A retry is a new run linked to the one it retries, its input carrying how that one
+ended (`src/shared/runs/attempts.ts`). The page draws a run with `src/web/live/LiveRun.tsx` around
+`src/web/transcript/TranscriptView.tsx`, which knows nothing of X-Dev's runs. `src/server/run_tools.ts`
 is the run's tools as an HTTP server on 127.0.0.1 that the agent calls with curl, each run reaching only its item through a token. Proposals are items at the
 `proposed` stage with the item and run they came from; a proposal whose title is close to an open item's is added to
 that item instead.

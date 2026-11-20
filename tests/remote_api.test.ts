@@ -44,6 +44,9 @@ function fake_runner() {
     list_run_changes: vi.fn(async () => ({})),
     add_item: vi.fn(async () => ({ id: "item-1", repository: "x-tech-laboratories/X-Dev", issue: { number: 12, opened: true }, checkout_added: false, problem: "" })),
     take_proposal: vi.fn(),
+    interject_run: vi.fn(),
+    interrupt_run: vi.fn(async () => undefined),
+    retry_run: vi.fn(async () => "run-2"),
   } satisfies Record<keyof RunnerMethods, unknown>;
 }
 

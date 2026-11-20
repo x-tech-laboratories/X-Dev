@@ -24,5 +24,14 @@ export const migrations: DrizzleMigration[] = [
       "ALTER TABLE `runs` ADD `input_tokens` integer DEFAULT 0 NOT NULL;",
       "ALTER TABLE `runs` ADD `output_tokens` integer DEFAULT 0 NOT NULL;"
     ]
+  },
+  {
+    "name": "20261120072902_live",
+    "statements": [
+      "ALTER TABLE `runs` ADD `transcript` text DEFAULT '' NOT NULL;",
+      "ALTER TABLE `runs` ADD `interjections` text DEFAULT '[]' NOT NULL;",
+      "ALTER TABLE `runs` ADD `retry_of` text DEFAULT '' NOT NULL;",
+      "ALTER TABLE `runs` ADD `attempt` integer DEFAULT 1 NOT NULL;"
+    ]
   }
 ];
