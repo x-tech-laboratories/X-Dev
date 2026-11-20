@@ -21,6 +21,11 @@ What it does so far:
   report the next run starts from. A run can ask you questions and wait, update the item's status sheet, and propose
   new items into the Inbox. Every run keeps its transcript, cost and report; the latest can be stopped or discarded,
   which puts the worktree, the status sheet and the stage back as they were.
+- **Gates:** once a run hands in its report, X-Dev checks the change itself, by the gates the stage file names: the
+  report and status sheet, the main checkout left alone, only allowed paths changed, Specify's tests failing first and
+  kept after, tests, types and lint, the coverage floor, Conventional Commits and their trailer, no secrets, no
+  leftovers, one-line comments, file size, libraries X-Libs wraps, and new dependencies' licences. A failed gate holds
+  the item until the stage runs again or you pass the gate over with a reason, which the next stage reads.
 - **New items:** described in a few lines for an agent to fill the form in from, or filled in by hand. An item saved
   without an issue number, or a proposal taken from the inbox, is linked to the open issue that matches its title, or
   gets a new issue with its title and body.
@@ -83,6 +88,20 @@ X-Dev starts `claude`, `git` and `gh` as programs, an exception to the Applicati
 not shell out: Claude Code has no Node API that runs on the user's own login, Node has no API for git worktrees, and
 going through the `gh` you are signed into means X-Dev never reads, stores or passes on a GitHub token. Sign `gh` in
 with `gh auth login` before an item needs an issue; **Settings → Pipeline → Runs** names another `gh` if needed.
+
+## Gates and x-dev-check
+
+The gates X-Dev runs after a stage are also a command, so a repository's CI holds every change to them, whether X-Dev
+made it or not:
+
+```sh
+npx x-dev-check                     # the gates that need only the change, against the branch point from origin/main
+npx x-dev-check --base origin/main commits secrets leftovers
+```
+
+It prints each gate's result and findings and exits with 1 when any fails. X-Dev's own CI runs it on every pull
+request. A gate that cannot check a repository, such as `tests-pass` where there is no vitest, says so as not checked
+rather than passing; `ci` waits until X-Dev tracks pull requests.
 
 ## The desktop app in the background
 

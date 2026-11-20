@@ -133,8 +133,9 @@ stage's gates in the worktree. A failed gate marks the run failed with what it f
 cannot move on until the stage runs again or the user overrides that gate with a written reason,
 which goes into the report and the issue.
 
-The same checks are a command, `x-dev check <gate>...`, so a repository's CI can run them on every
-pull request and nothing that skipped X-Dev gets past them.
+The same checks are a command, `x-dev-check [gate...]`, so a repository's CI can run them on every
+pull request and nothing that skipped X-Dev gets past them. Checks read only the code around strings
+and regular expressions, so a check's own patterns or test data do not trip it.
 
 | Gate | Checks | After |
 | ---- | ------ | ----- |
@@ -314,7 +315,7 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 2. **Stages**: reading and editing the stage files.
 3. **Runs**: items by hand or described in free text for an agent to fill in, running a stage through
    Claude Code, reports, discard, questions, the status sheet tools and proposals; no GitHub yet.
-4. **Gates**: the gates and `x-dev check`, then the change checks moved into X-Libs.
+4. **Gates**: the gates and `x-dev-check`, then the change checks moved into X-Libs.
 5. **GitHub**: issues, labels, comments, pull requests and checks.
 6. **Board and item pages**, the diff view, notifications.
 7. **Android and remote daemons**.

@@ -134,6 +134,31 @@ describe("an item's page", () => {
     await waitFor(() => expect(runner.link_issue).toHaveBeenCalledWith(id));
   });
 
+  it("shows each gate's result and passes a failed one over with a reason, moving the item on", async () => {
+    const { database, store } = fake_page();
+    const id = store.save_item(item);
+    const run = add_run(database, id, {
+      state: "failed",
+      report: "## Plan handoff\n**Next:** specify",
+      next: "specify",
+      gates: [
+        { gate: "report", outcome: "passed", findings: [] },
+        { gate: "status", outcome: "failed", findings: ["the run did not update the status sheet"] },
+      ],
+    });
+    render(<App />);
+    go(`#/items/${id}`);
+
+    expect(await screen.findByText("the run did not update the status sheet")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Pass Over…" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Why it can be passed over"), { target: { value: "Nothing new to note." } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(store.get_run(run).state).toBe("done"));
+    expect(store.get_item(id).stage).toBe("specify");
+  });
+
   it("says runs start from the desktop app where no runner is reached", async () => {
     const { store } = fake_page(false);
     const id = store.save_item(item);

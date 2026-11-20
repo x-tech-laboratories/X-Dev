@@ -12,7 +12,8 @@ import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 import { check_item, is_repository, issue_link, item_kinds, read_status, type Item, type ItemInput, type ItemKind } from "../shared/items/model.ts";
 import { answers_input, append_output, branch_name_of, build_run_input, needs_input, parse_report, read_stream_line, type Run, type StreamResult } from "../shared/runs/model.ts";
 import { read_runner_settings, type RunnerMethods, type RunnerSettings, type StartOptions } from "../shared/runs/runner.ts";
-import { find_run, insert_run, latest_report, runs_in_state, set_item_fields, update_run } from "../shared/runs/store.ts";
+import { finish_run, find_run, insert_run, latest_report, runs_in_state, set_item_fields, update_run } from "../shared/runs/store.ts";
+import { checkout_state, run_gates } from "./gates.ts";
 import { done, type Stage, type StagesMethods } from "../shared/stages/model.ts";
 import { find_or_open_issue } from "./github.ts";
 import type { RunMcp } from "./run_mcp.ts";
@@ -83,6 +84,8 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
   const settings_file = join(folder, "runner.json");
   let current: { run_id: string; controller: AbortController; finished: Promise<void> } | null = null;
   const asked = new Set<string>();
+  // What git said of each run's main checkout when it started, for the worktree gate.
+  const checkouts_before = new Map<string, string>();
 
   function read_settings(): RunnerSettings {
     return read_runner_settings(existsSync(settings_file) ? JSON.parse(readFileSync(settings_file, "utf8")) : null);
@@ -136,8 +139,38 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
     return { agents, mcp };
   }
 
-  // What the run does once its session ends: wait for answers, hand its report on, or fail.
-  function settle(run_id: string, result: StreamResult | null, exit_text: string, cost: number, aborted: boolean): void {
+  // Test files the item's Specify runs added, which later stages may not change.
+  async function specified_tests(item_id: string, worktree: string): Promise<string[]> {
+    const specify_runs = database().prepare("SELECT start_commit, end_commit FROM runs WHERE item_id = ? AND stage = 'specify' AND state = 'done' AND end_commit != ''").all(item_id) as { start_commit: string; end_commit: string }[];
+    const added = await Promise.all(specify_runs.map((run) => git(["diff", "--name-only", "--diff-filter=A", run.start_commit, run.end_commit], worktree).catch(() => "")));
+    return [...new Set(added.flatMap((text) => text.split("\n").filter(Boolean)))];
+  }
+
+  // A report that is good still waits on the stage's gates; any that fail hold the item until rerun or passed over.
+  async function check_gates(run: Run, stage: Stage, worktree: string, report: string, next: string, cost: number): Promise<void> {
+    const item = item_of(run.item_id);
+    const end_commit = await git(["rev-parse", "HEAD"], worktree);
+    const repository_folder = read_settings().repositories[item.repository];
+    const before = checkouts_before.get(run.id);
+    const gates = await run_gates(stage.gates, {
+      worktree,
+      base: run.start_commit,
+      repository: item.repository,
+      paths: stage.paths,
+      specified_tests: await specified_tests(item.id, worktree),
+      status: { before: run.status_before, after: JSON.stringify(item.status) },
+      report,
+      ...(repository_folder && before ? { main_checkout: { folder: repository_folder, before } } : {}),
+    });
+    const failed = gates.filter((gate) => gate.outcome === "failed");
+    update_run(database(), run.id, { report, next, end_commit, gates, cost_usd: cost, ended_at: now() });
+    if (failed.length) update_run(database(), run.id, { state: "failed", error: `${failed.length === 1 ? "A gate" : `${failed.length} gates`} failed: ${failed.map((gate) => gate.gate).join(", ")}. Run the stage again, or pass a gate over with a reason.` });
+    else finish_run(database(), find_run(database(), run.id));
+    after_write();
+  }
+
+  // What the run does once its session ends: wait for answers, check its report and gates, or fail.
+  async function settle(run_id: string, stage: Stage, worktree: string, result: StreamResult | null, exit_text: string, cost: number, aborted: boolean): Promise<void> {
     const run = find_run(database(), run_id);
     const total = run.cost_usd + cost;
     if (aborted) return change(run_id, { state: "stopped", cost_usd: total, ended_at: now() });
@@ -147,10 +180,11 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
     if (!report) return change(run_id, { state: "failed", cost_usd: total, ended_at: now(), error: "The agent ended without a report block naming the next stage." });
     const known = new Set([...stages.list_stages().stages.map((stage) => stage.id), done, needs_input]);
     if (!known.has(report.next)) return change(run_id, { state: "failed", cost_usd: total, ended_at: now(), report: report.text, error: `The report names ${report.next} next, which is no stage.` });
-    update_run(database(), run_id, { state: "done", cost_usd: total, ended_at: now(), report: report.text, next: report.next });
-    // The notes went to this run; a stage that waits on the user keeps its place.
-    set_item_fields(database(), run.item_id, { notes: "", ...(report.next === needs_input ? {} : { stage: report.next }) });
-    after_write();
+    try {
+      await check_gates(run, stage, worktree, report.text, report.next, total);
+    } catch (error) {
+      change(run_id, { state: "failed", cost_usd: total, ended_at: now(), report: report.text, next: report.next, error: `The gates could not run: ${error instanceof Error ? error.message : String(error)}` });
+    }
   }
 
   // Runs one turn of a run's session in the background: a new session, or a resumed one with the user's answers.
@@ -199,16 +233,17 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
     };
     const finished = run_program(argv, { cwd: worktree, stdin: input, stdout: "show", stderr: "keep", out: sink, signal: controller.signal, own_group: true })
       .then(
-        (exit) => {
+        async (exit) => {
           save(true);
           const exit_text = exit.exit_code === 127 ? `${settings.claude_program} is not installed or not on the PATH` : exit.stderr.trim().split("\n").slice(-5).join("\n");
-          settle(run.id, result, exit.exit_code === 0 ? "" : exit_text, (result as StreamResult | null)?.cost_usd ?? 0, controller.signal.aborted);
+          await settle(run.id, stage, worktree, result, exit.exit_code === 0 ? "" : exit_text, (result as StreamResult | null)?.cost_usd ?? 0, controller.signal.aborted);
         },
         (error: unknown) => change(run.id, { state: "failed", ended_at: now(), error: error instanceof Error ? error.message : String(error) }),
       )
       .finally(() => {
         run_mcp.revoke(token);
         if (current?.run_id === run.id) current = null;
+        checkouts_before.delete(run.id);
       });
     current = { run_id: run.id, controller, finished };
   }
@@ -229,6 +264,7 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
     const worktree = await ensure_worktree(repository_folder, branch);
     if (!item.branch) set_item_fields(database(), item.id, { branch });
     const start_commit = await git(["rev-parse", "HEAD"], worktree);
+    const checkout_before = await checkout_state(repository_folder);
     const input = build_run_input({ item: { ...item, branch }, stage_label: stage.label, worktree, issue_url: issue_link(item), latest_report: latest_report(database(), item.id), notes: item.notes });
     require_free();
     const run_id = insert_run(database(), {
@@ -245,6 +281,7 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
     // A run sent to another stage moves the item there.
     set_item_fields(database(), item.id, { stage: stage.id });
     after_write();
+    checkouts_before.set(run_id, checkout_before);
     launch(find_run(database(), run_id), stage, worktree, input, false);
     return run_id;
   }
@@ -345,8 +382,7 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
 
 // ── Describing ───────────────────────────────────────────────────────────────
 
-// The known repository a guess names, matched without case and by its name alone, or the guess itself when it is a
-// repository name at all; empty otherwise.
+// A known repository the guess names, matched without case or owner, else the guess when it names a repository at all.
 export function match_repository(guess: string, repositories: string[]): string {
   const wanted = guess.trim().toLowerCase();
   if (!wanted) return "";

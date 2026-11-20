@@ -42,6 +42,11 @@ export const runs = sqliteTable(
     ended_at: text(),
     // How many proposals the run made.
     proposals: integer().notNull().default(0),
+    // The commit the worktree was on when the run ended, which later gates compare against.
+    end_commit: text().notNull().default(""),
+    // Each gate's result as JSON, and the user's overrides of failed ones with their reasons.
+    gates: text().notNull().default("[]"),
+    overrides: text().notNull().default("[]"),
   },
   (table) => [index("runs_by_item").on(table.item_id, table.started_at)],
 );

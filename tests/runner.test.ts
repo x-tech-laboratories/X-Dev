@@ -54,7 +54,7 @@ async function setup() {
 describe("the runner", () => {
   it("runs a stage in the item's own worktree and moves the item to the stage its report names", async () => {
     const { store, runner, checkout, item } = await setup();
-    const id = item("Plan it.");
+    const id = item("Plan it. STATUS");
     store.save_item_notes(id, "Keep it small.");
 
     const run_id = await runner.methods.start_run(id, {});
@@ -73,7 +73,7 @@ describe("the runner", () => {
 
   it("hands the next run the latest report, and runs a model given for one run", async () => {
     const { store, runner, item } = await setup();
-    const id = item("Plan it.");
+    const id = item("Plan it. STATUS");
     await runner.methods.start_run(id, {});
     await runner.idle();
 
@@ -107,7 +107,7 @@ describe("the runner", () => {
 
   it("waits for answers when the agent asks, then resumes the same session with them", async () => {
     const { store, runner, item } = await setup();
-    const run_id = await runner.methods.start_run(item("ASK"), {});
+    const run_id = await runner.methods.start_run(item("ASK STATUS"), {});
     await runner.idle();
 
     const waiting = store.get_run(run_id);
@@ -143,6 +143,37 @@ describe("the runner", () => {
     expect(store.get_item(id)).toMatchObject({ stage: "plan", status: { current_state: "" } });
     expect(store.list_proposals()).toEqual([]);
     expect(store.get_run(run_id).state).toBe("discarded");
+  });
+
+  it("holds the item when a gate fails, until the gate is passed over with a reason", async () => {
+    const { store, runner, item } = await setup();
+    const id = item("Plan it, leaving the status sheet as it was.");
+    const run_id = await runner.methods.start_run(id, {});
+    await runner.idle();
+
+    const run = store.get_run(run_id);
+    expect(run).toMatchObject({ state: "failed", next: "specify", error: "A gate failed: status. Run the stage again, or pass a gate over with a reason." });
+    expect(run.gates).toEqual([
+      { gate: "report", outcome: "passed", findings: [] },
+      { gate: "status", outcome: "failed", findings: ["the run did not update the status sheet"] },
+    ]);
+    expect(store.get_item(id).stage).toBe("plan");
+
+    expect(() => store.override_gate(run_id, "report", "fine")).toThrow("the report gate did not fail on that run");
+    store.override_gate(run_id, "status", "Nothing changed worth noting.");
+    expect(store.get_run(run_id)).toMatchObject({ state: "done", overrides: [{ gate: "status", reason: "Nothing changed worth noting." }] });
+    expect(store.get_run(run_id).report).toContain("**Gate passed over:** status: Nothing changed worth noting.");
+    expect(store.get_item(id).stage).toBe("specify");
+  });
+
+  it("fails a stage that changed files outside what it may touch", async () => {
+    const { store, runner, item } = await setup();
+    const id = item("WRITE-FILE STATUS");
+    const run_id = await runner.methods.start_run(id, { stage: "specify" });
+    await runner.idle();
+
+    const scope = store.get_run(run_id).gates.find((gate) => gate.gate === "scope")!;
+    expect(scope).toEqual({ gate: "scope", outcome: "failed", findings: ["made-by-run.txt is outside what this stage may change (tests/**)"] });
   });
 
   it("says where to add a repository it does not know", async () => {

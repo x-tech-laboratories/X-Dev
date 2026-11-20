@@ -20,6 +20,10 @@ export const runs_api = {
     description: "Replaces a finished run's report, which the item's next run starts from.",
     params: [{ name: "id", schema: id_of("run") }, { name: "report", schema: text("The whole report block.") }],
   },
+  override_gate: {
+    description: "Passes over a gate that failed on a run, with the reason, which is added to the run's report; once every failed gate is passed over, the item moves on to the stage the report names.",
+    params: [{ name: "run_id", schema: id_of("run") }, { name: "gate", schema: text("The gate's name, such as leftovers.") }, { name: "reason", schema: text("Why it can be passed over.") }],
+  },
   save_item_notes: {
     description: "Sets the notes the item's next run is handed, such as answers, corrections or a change of scope.",
     params: [{ name: "item_id", schema: id_of("item") }, { name: "notes", schema: text("The notes; empty for none.") }],

@@ -89,6 +89,14 @@ is the run's own MCP server on 127.0.0.1, each run reaching only its item throug
 `proposed` stage with the item and run they came from; a proposal whose title is close to an open item's is added to
 that item instead.
 
+## Gates
+
+`src/shared/gates/model.ts` holds each check as a function of what changed (files with the lines they added, commits,
+the coverage config before and after, the manifests), so it needs no repository. `src/server/gates.ts` reads those from
+git between a base and the worktree, uncommitted and untracked files included, runs the repository's own tests, type
+check and lint for the gates that need them, and gives a result per gate. The runner runs a stage's gates once its
+report arrives and stores the results and the user's overrides on the run; `src/cli/check.ts` is `x-dev-check`.
+
 ## History
 
 `src/shared/history/store.ts` keeps a version of every item a write touches through X-Libs `create_history`, one
