@@ -11,20 +11,27 @@ keep their own copy of the data, work offline, and sync with the server whenever
 
 What it does so far:
 
-- **Board:** the page X-Dev opens on. A swimlane for each open item, grouped by repository, and a column for each
-  stage; each cell shows that stage's latest run on the item with a line from its report, earlier stages it went past
-  without a run as skipped, and the stage the item is at marked, with Run. The inbox of proposals sits above the lanes;
-  lanes filter by repository and words, and finished items fold away unless shown.
+- **Board:** the page X-Dev opens on, a kanban board with a column for each stage and a card for each open item in the
+  column of the stage it is at. The card shows the latest run of that stage: its state, the first line of its report
+  or what failed, its model, the lines it changed, its cost, its age and its gates, a waiting run's question with its
+  choices, the item's pull request and checks, and a dot for each stage the item went through. Run starts the stage, on
+  the stage's model or one picked for that run; the card's menu opens the item, sends it back to an earlier stage and
+  discards its last run. Dragging a card to an earlier column sends the item back there. The inbox of proposals sits
+  above; cards filter by repository and words, group into a lane per repository, and finished items show in a Done
+  column when asked. On a phone the columns stack into a list of stages.
 - **Items:** each feature or bug fix in one GitHub repository, with its issue, the stage it is at, and a status sheet
   that every stage reads and keeps current. Items are added, edited, closed and reopened on the Items page.
 - **Stages:** the steps every item goes through, from Triage to Close, each a Claude Code agent file with its own
   model, effort, next stage, gates, tools and prompt. **Settings → Pipeline → Stages** lists them in order, edits each
   in a dialog, moves and deletes them, and adds the default stages where they are missing.
-- **Runs:** each item's page starts its current stage, or any other, on the stage's model or one picked for that run.
+- **Runs:** each item's page and its card on the board start its current stage, or any other, on the stage's model or
+  one picked for that run; Review warns when its model is the one Implement's last run used.
   The run works in the item's own git worktree as a headless Claude Code session, one run at a time, and ends with a
   report the next run starts from. A run can ask you questions and wait, update the item's status sheet, and propose
-  new items into the Inbox. Every run keeps its transcript, cost and report; the latest can be stopped or discarded,
-  which puts the worktree, the status sheet and the stage back as they were.
+  new items into the Inbox. Every run keeps its transcript, tokens, cost and report; the latest can be stopped or
+  discarded, which puts the worktree, the status sheet and the stage back as they were. The **Runs** page lists every
+  run across items, filtered by words and state, under their tokens and cost summed by stage and by model; a row opens
+  its item at that run. The item's page shows its branch's changes since its work started, file by file.
 - **Gates:** once a run hands in its report, X-Dev checks the change itself, by the gates the stage file names: the
   report and status sheet, the main checkout left alone, only allowed paths changed, Specify's tests failing first and
   kept after, tests, types and lint, the coverage floor, Conventional Commits and their trailer, no secrets, no
@@ -135,7 +142,9 @@ A tray icon shows how many items are open and brings the window back; **Quit com
 `x-dev-desktop --daemon` without opening the window. These belong to the computer and are never synced. The
 daemon's log is `~/.local/state/x-dev/daemon.log`.
 
-X-Dev has no notifications yet; runs that finish or ask questions will notify once runs exist.
+The daemon tells you, through desktop notifications, when a run finishes, fails, asks questions or makes proposals,
+and when the checks on an item's pull request finish; clicking one opens the item. **Settings → Notifications** turns
+each kind on or off for this computer. A browser and a phone show none, since runs happen on the desktop.
 
 ## Signing in
 

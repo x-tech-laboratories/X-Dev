@@ -170,69 +170,231 @@ button.result-row {
 /* The board scrolls sideways inside itself on a narrow window, never the page. */
 .board-scroll {
   overflow-x: auto;
+  padding-bottom: var(--space-4);
 }
 
-/* One grid for the whole board, each lane's cells taking its columns, so every column lines up. */
+/* One grid of fixed-width stage columns, lined up across the lanes when cards are grouped by repository. */
 .board {
+  --board-column-width: 280px;
   display: grid;
+  column-gap: var(--space-5);
+  row-gap: var(--space-3);
+  align-items: start;
   min-width: max-content;
-  border: var(--border-width) solid var(--border-default);
+}
+
+/* A column's name and how many cards it holds, at either end of its head. */
+.board-column-head,
+.board-column-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-2) var(--space-1);
+}
+
+/* Each column names itself only on a phone, where the columns stack. */
+.board-column-label {
+  display: none;
+}
+
+.board-lane-head {
+  grid-column: 1 / -1;
+  margin: var(--space-5) 0 0;
+}
+
+/* A column's cards stacked with a little room between them, and room to drop a card when it has none. */
+.board-column {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+  min-height: var(--row-height);
   border-radius: var(--radius-default);
 }
 
-.board-lane {
-  display: contents;
+.board-card {
+  min-width: 0;
 }
 
-.board-head,
-.board-column,
-.board-cell,
-.board-group > * {
-  padding: var(--space-2) var(--space-3);
-  border-bottom: var(--border-width) solid var(--border-default);
-}
-
-.board-head {
+/* An item's card, with a title of up to three lines and its facts on small lines below. */
+.item-card {
   display: grid;
-  gap: var(--space-1);
-  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 10px var(--space-5);
+  border-radius: var(--radius-small);
+  cursor: pointer;
 }
 
-.board-columns > * {
-  position: sticky;
-  top: 0;
-  background: var(--surface-secondary);
-  font-weight: 600;
+.card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-label);
 }
 
-.board-group > * {
-  grid-column: 1 / -1;
-  background: var(--surface-secondary);
-  font-weight: 600;
+.card-top button.menu-trigger {
+  width: var(--space-7);
+  height: var(--space-7);
 }
 
-.board-cell {
-  display: grid;
-  gap: var(--space-2);
-  align-content: start;
-  border-left: var(--border-width) solid var(--border-default);
-}
-
-/* The stage an item is at stands out from those before and after it. */
-.board-cell.current {
-  box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-.board-run {
-  display: grid;
-  gap: var(--space-1);
-  justify-items: start;
-  text-decoration: none;
-}
-
-.board-summary {
+.card-title {
   display: -webkit-box;
   overflow: hidden;
-  -webkit-line-clamp: 2;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
+}
+
+.card-run {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-caption);
+}
+
+.card-line {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-label);
+}
+
+.card-meta .badge,
+.card-gates .badge {
+  padding: 0 var(--space-2);
+  font-size: var(--text-label);
+}
+
+.card-meta .badge {
+  text-transform: uppercase;
+}
+
+.card-question li {
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-caption);
+}
+
+/* The item's stages as a row of small dots, the stages still ahead set back and the current one spaced apart. */
+.card-path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card-path li {
+  display: flex;
+  padding: var(--space-1);
+}
+
+.card-path-ahead {
+  opacity: 0.4;
+}
+
+.card-path-current .status-dot {
+  transform: scale(1.4);
+}
+
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* On a phone the columns stack into a list of stages with their cards, the empty ones left out. */
+@media (max-width: 700px) {
+  .board-scroll {
+    overflow-x: visible;
+  }
+
+  .board {
+    grid-template-columns: minmax(0, 1fr) !important;
+    min-width: 0;
+  }
+
+  .board-column-head,
+  .board-column.empty {
+    display: none;
+  }
+
+  .board-column-label {
+    display: flex;
+  }
+}
+
+.run-dialog {
+  display: grid;
+  gap: var(--space-5);
+}
+
+/* The Runs page's totals by stage and by model, side by side when there is room. */
+.runs-totals {
+  display: grid;
+  margin-bottom: var(--space-6);
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: var(--space-6);
+}
+
+/* A diff: the changed files listed, then each file's lines in the fixed-width font, scrolling sideways when long. */
+.diff-view {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.diff-summary {
+  margin: 0;
+}
+
+.diff-files {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.diff-path {
+  overflow-wrap: anywhere;
+}
+
+.diff-scroll {
+  overflow-x: auto;
+}
+
+.diff-lines td {
+  height: auto;
+  padding: 0 var(--space-3);
+  border-bottom: none;
+  vertical-align: top;
+  white-space: pre;
+}
+
+.diff-lines code {
+  white-space: pre;
+}
+
+.diff-number,
+.diff-mark {
+  width: 1%;
+  text-align: right;
+  user-select: none;
 }

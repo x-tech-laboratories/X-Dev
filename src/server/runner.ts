@@ -13,7 +13,8 @@ import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 import { check_item, is_repository, issue_link, item_kinds, repository_of_remote, read_status, type Item, type ItemInput, type ItemKind } from "../shared/items/model.ts";
 import { answers_input, append_output, branch_name_of, build_run_input, needs_input, parse_report, read_stream_line, type Run, type StreamResult } from "../shared/runs/model.ts";
 import { read_runner_settings, type ItemDraft, type RunnerMethods, type RunnerSettings, type StartOptions } from "../shared/runs/runner.ts";
-import { finish_run, find_run, insert_run, latest_report, runs_in_state, set_item_fields, update_run } from "../shared/runs/store.ts";
+import { add_run_tokens, finish_run, find_run, insert_run, latest_report, runs_in_state, set_item_fields, update_run } from "../shared/runs/store.ts";
+import { read_item_diff, read_run_changes } from "./item_diff.ts";
 import { checkout_state, run_gates } from "./gates.ts";
 import { done, type Stage, type StagesMethods } from "../shared/stages/model.ts";
 import { find_or_open_issue, github_account, github_sign_out, start_github_sign_in } from "./github.ts";
@@ -237,6 +238,7 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       .then(
         async (exit) => {
           save(true);
+          add_run_tokens(database(), run.id, (result as StreamResult | null)?.tokens);
           const exit_text = exit.exit_code === 127 ? `${settings.claude_program} is not installed or not on the PATH` : exit.stderr.trim().split("\n").slice(-5).join("\n");
           await settle(run.id, stage, worktree, result, exit.exit_code === 0 ? "" : exit_text, (result as StreamResult | null)?.cost_usd ?? 0, controller.signal.aborted);
         },
@@ -389,6 +391,8 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       if (account) await github_sign_out(account, program);
       after_write();
     },
+    get_item_diff: (item_id) => read_item_diff(database(), item_of(item_id), read_settings().repositories),
+    list_run_changes: (run_ids) => read_run_changes(database(), run_ids, read_settings().repositories),
     sync_github: async (item_id) => {
       if (!github) throw new Error("this copy of X-Dev does not reach GitHub");
       return github.sync_item(item_id, { find_pull_request: true });

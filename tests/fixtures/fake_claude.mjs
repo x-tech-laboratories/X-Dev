@@ -48,4 +48,4 @@ else if (input.includes("SLOW")) {
   text = report("specify");
 } else text = report("specify");
 
-say({ type: "result", subtype: "success", result: text, is_error: false, total_cost_usd: 0.25, session_id: option("--session-id") ?? option("--resume") });
+say({ type: "result", subtype: "success", result: text, is_error: false, total_cost_usd: 0.25, usage: { input_tokens: 100, cache_read_input_tokens: 20, output_tokens: 30 }, session_id: option("--session-id") ?? option("--resume") });

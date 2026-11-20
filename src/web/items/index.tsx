@@ -260,5 +260,5 @@ function ItemsList() {
 // #/items lists them, #/items/<id> opens one.
 export function ItemsView({ parts }: { parts: string[] }) {
   const id = parts[0];
-  return id && id !== "list" ? <ItemView key={id} id={decodeURIComponent(id)} /> : <ItemsList />;
+  return id && id !== "list" ? <ItemView key={id} id={decodeURIComponent(id)} run_id={parts[1]} /> : <ItemsList />;
 }

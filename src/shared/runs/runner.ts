@@ -2,6 +2,7 @@
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
+import type { DiffFile } from "../diff/parse.ts";
 import type { ItemInput } from "../items/model.ts";
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -75,6 +76,25 @@ export interface RunnerMethods {
   // Starts signing gh into GitHub in the browser and gives back the code to enter there.
   sign_in_github: () => Promise<GitHubSignIn>;
   sign_out_github: () => Promise<void>;
+  // What the item's branch changed since its work started, read from its worktree.
+  get_item_diff: (item_id: string) => Promise<ItemDiff>;
+  // The lines each finished run added and removed, by run id, for the runs whose worktree is on this computer.
+  list_run_changes: (run_ids: string[]) => Promise<Record<string, LineCounts>>;
+}
+
+export interface ItemDiff {
+  // The commit the changes are counted from; empty when there is nothing to read.
+  base: string;
+  files: DiffFile[];
+  // Whether the diff ran past what is shown, its later files left out.
+  truncated: boolean;
+  // Why there is nothing to show, such as no worktree yet; empty otherwise.
+  problem: string;
+}
+
+export interface LineCounts {
+  additions: number;
+  deletions: number;
 }
 
 // A described item, with the folder of its repository's checkout on this computer when one was found.
@@ -115,4 +135,6 @@ export const runner_method_names = [
   "get_github",
   "sign_in_github",
   "sign_out_github",
+  "get_item_diff",
+  "list_run_changes",
 ] as const satisfies readonly (keyof RunnerMethods)[];

@@ -3,7 +3,7 @@
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StateBadge, type Tone } from "@x-tech-laboratories/x-libs/web/react/badges";
 import { Select } from "@x-tech-laboratories/x-libs/web/react/controls";
 import { confirm_dialog, Dialog } from "@x-tech-laboratories/x-libs/web/react/dialog";
@@ -13,13 +13,15 @@ import { Markdown } from "@x-tech-laboratories/x-libs/web/react/markdown";
 import { Loaded, use_resource } from "@x-tech-laboratories/x-libs/web/react/states";
 import { ComboField } from "@x-tech-laboratories/x-libs/web/react/suggestions";
 import { Age } from "@x-tech-laboratories/x-libs/web/react/time";
+import { format_count } from "@x-tech-laboratories/x-libs/web/format";
 
 import type { GateOutcome } from "../../shared/gates/model.ts";
 import { issue_link, status_sections, type Item, type StatusSheet } from "../../shared/items/model.ts";
-import type { Run, RunState } from "../../shared/runs/model.ts";
+import { review_model_warning, type Run, type RunState } from "../../shared/runs/model.ts";
 import { done, model_suggestions, type Stage } from "../../shared/stages/model.ts";
 import { calls, data_watch, page, succeeds, use_data } from "../api.ts";
 import { DialogButtons } from "../forms.tsx";
+import { BranchChanges } from "./BranchChanges.tsx";
 import { link_issue } from "./index.tsx";
 import { PullRequestPanel } from "./PullRequestPanel.tsx";
 
@@ -107,11 +109,12 @@ function NotesSection({ item }: { item: Item }) {
 
 // ── Starting ─────────────────────────────────────────────────────────────────
 
-function RunControls({ item, stages, busy }: { item: Item; stages: Stage[]; busy: boolean }) {
+function RunControls({ item, stages, runs, busy }: { item: Item; stages: Stage[]; runs: Run[]; busy: boolean }) {
   const { runner } = page();
   const [stage_id, set_stage_id] = useState(item.stage === done || item.stage === "proposed" ? (stages[0]?.id ?? "") : item.stage);
   const [model, set_model] = useState("");
   const stage = stages.find((each) => each.id === stage_id);
+  const warning = review_model_warning(stage_id, model.trim() || stage?.model || "", runs);
   if (!runner) return <p className="muted">Runs start from the desktop app, whose background process holds the checkouts and runs the agents.</p>;
   if (item.closed_at) return <p className="muted">This item is closed.</p>;
   if (item.stage === "proposed") return <p className="muted">Take this proposal from the inbox before running it.</p>;
@@ -130,6 +133,7 @@ function RunControls({ item, stages, busy }: { item: Item; stages: Stage[]; busy
       >
         Run {stage?.label ?? "Stage"}
       </button>
+      {warning && <span className="tone-warn small" role="status">{warning}</span>}
     </Toolbar>
   );
 }
@@ -197,7 +201,7 @@ function ReportDialog({ run, on_close }: { run: Run; on_close: () => void }) {
   );
 }
 
-function Answers({ run }: { run: Run }) {
+export function Answers({ run }: { run: Run }) {
   const { runner } = page();
   const [answers, set_answers] = useState("");
   return (
@@ -229,9 +233,11 @@ interface RunCardProps {
   run: Run;
   stages: Stage[];
   is_latest: boolean;
+  // Whether the page was opened at this run, which shows its report.
+  focused?: boolean;
 }
 
-function RunCard({ run, stages, is_latest }: RunCardProps) {
+function RunCard({ run, stages, is_latest, focused = false }: RunCardProps) {
   const { runner } = page();
   const [editing_report, set_editing_report] = useState(false);
   const label = stage_label(stages, run.stage);
@@ -278,6 +284,7 @@ function RunCard({ run, stages, is_latest }: RunCardProps) {
           ["Model", run.model || "Default"],
           run.effort ? ["Effort", run.effort] : null,
           ["Cost", money(run.cost_usd)],
+          run.input_tokens + run.output_tokens > 0 ? ["Tokens", `${format_count(run.input_tokens)} read, ${format_count(run.output_tokens)} written`] : null,
           run.proposals > 0 ? ["Proposals", String(run.proposals)] : null,
         ]}
       />
@@ -289,7 +296,7 @@ function RunCard({ run, stages, is_latest }: RunCardProps) {
       {run.state === "waiting" && <Answers run={run} />}
       <Gates run={run} />
       {run.report && (
-        <FormGroup summary="Report" open={is_latest}>
+        <FormGroup summary="Report" open={is_latest || focused}>
           <Markdown text={run.report} />
           {run.state === "done" && (
             <Toolbar>
@@ -310,12 +317,16 @@ function RunCard({ run, stages, is_latest }: RunCardProps) {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-export function ItemView({ id }: { id: string }) {
+export function ItemView({ id, run_id }: { id: string; run_id?: string }) {
   const { stages: stages_client, runner } = page();
   const item = use_data((api) => api.get_item(id), [id]);
   const runs = use_data((api) => api.list_runs(id), [id]);
   const stages = use_resource(async () => (stages_client ? (await stages_client.list_stages()).stages : []), [stages_client], { watch: data_watch });
   const runner_status = use_resource(async () => (runner ? await runner.get_runner() : null), [runner], { watch: data_watch });
+  const runs_loaded = runs.data !== null;
+  useEffect(() => {
+    if (run_id && runs_loaded) document.getElementById(`run-${run_id}`)?.scrollIntoView({ block: "start" });
+  }, [run_id, runs_loaded]);
 
   return (
     <Loaded resource={item}>
@@ -355,13 +366,14 @@ export function ItemView({ id }: { id: string }) {
               }
             />
             {found.body && <Markdown text={found.body} />}
-            <RunControls key={found.stage} item={found} stages={all_stages} busy={runner_status.data?.running_run_id != null} />
+            <RunControls key={found.stage} item={found} stages={all_stages} runs={run_list} busy={runner_status.data?.running_run_id != null} />
             <StatusSheetSection item={found} />
             <PullRequestPanel item={found} />
             <NotesSection key={found.notes} item={found} />
             <Section title="Runs">
-              {run_list.length === 0 ? <p className="muted">No runs yet.</p> : run_list.map((run) => <RunCard key={run.id} run={run} stages={all_stages} is_latest={run.id === latest?.id} />)}
+              {run_list.length === 0 ? <p className="muted">No runs yet.</p> : run_list.map((run) => <div key={run.id} id={`run-${run.id}`}><RunCard run={run} stages={all_stages} is_latest={run.id === latest?.id} focused={run.id === run_id} /></div>)}
             </Section>
+            <BranchChanges item={found} runs={run_list} />
           </>
         );
       }}

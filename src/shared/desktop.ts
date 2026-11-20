@@ -1,5 +1,5 @@
 // The desktop app's own settings, kept by its daemon beside the database rather than synced, since they belong to this
-// computer: the tray icon, running on with the window closed, and starting at login.
+// computer: the tray icon, running on with the window closed, starting at login, and which notifications it shows.
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
@@ -7,19 +7,30 @@ export interface DesktopSettings {
   show_tray_icon: boolean;
   keep_running_in_background: boolean;
   start_at_login: boolean;
+  // Each kind of notification the daemon shows about runs and pull requests on this computer.
+  notify_run_finished: boolean;
+  notify_run_failed: boolean;
+  notify_run_asked: boolean;
+  notify_run_proposed: boolean;
+  notify_checks_finished: boolean;
 }
 
 export const desktop_setting_defaults: DesktopSettings = {
   show_tray_icon: true,
   keep_running_in_background: true,
   start_at_login: true,
+  notify_run_finished: true,
+  notify_run_failed: true,
+  notify_run_asked: true,
+  notify_run_proposed: true,
+  notify_checks_finished: true,
 };
 
 // Settings saved on the device, each default where it is missing or damaged.
 export function read_desktop_settings(saved: unknown): DesktopSettings {
   const settings = (saved ?? {}) as Partial<Record<keyof DesktopSettings, unknown>>;
   const flag = (key: keyof DesktopSettings): boolean => (typeof settings[key] === "boolean" ? settings[key] : desktop_setting_defaults[key]);
-  return { show_tray_icon: flag("show_tray_icon"), keep_running_in_background: flag("keep_running_in_background"), start_at_login: flag("start_at_login") };
+  return Object.fromEntries((Object.keys(desktop_setting_defaults) as (keyof DesktopSettings)[]).map((key) => [key, flag(key)])) as unknown as DesktopSettings;
 }
 
 // ── Calls ────────────────────────────────────────────────────────────────────

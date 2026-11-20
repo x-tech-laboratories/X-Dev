@@ -8,12 +8,16 @@ import { id_of, text } from "../api_schemas.ts";
 
 export const runs_api = {
   list_runs: {
-    description: "Lists an item's stage runs, newest first: the stage, its state (running, waiting, done, failed, stopped or discarded), the model, the report, any questions and the cost.",
+    description: "Lists an item's stage runs, newest first: the stage, its state (running, waiting, done, failed, stopped or discarded), the model, the report, any questions, the tokens and the cost.",
     params: [{ name: "item_id", schema: id_of("item") }],
   },
   get_run: { description: "One run with its input, transcript and report.", params: [{ name: "id", schema: id_of("run") }] },
   list_stage_runs: {
     description: "Lists the latest run of each stage on each item, discarded ones left out, with its state and a one-line summary of its report, as the board shows them.",
+    params: [],
+  },
+  list_run_summaries: {
+    description: "Lists every run across every item, newest first, without transcripts: the item's title and repository, the stage, model, state, start and end times, tokens read and written, cost in US dollars, and how many gates ran, failed and were passed over.",
     params: [],
   },
   list_recent_runs: {
@@ -27,6 +31,10 @@ export const runs_api = {
   override_gate: {
     description: "Passes over a gate that failed on a run, with the reason, which is added to the run's report; once every failed gate is passed over, the item moves on to the stage the report names.",
     params: [{ name: "run_id", schema: id_of("run") }, { name: "gate", schema: text("The gate's name, such as leftovers.") }, { name: "reason", schema: text("Why it can be passed over.") }],
+  },
+  send_item_back: {
+    description: "Moves an item to another stage, usually an earlier one, so that stage is the one its next run takes; nothing is run and no run is undone.",
+    params: [{ name: "item_id", schema: id_of("item") }, { name: "stage", schema: text("The stage's id, such as plan.") }],
   },
   save_item_notes: {
     description: "Sets the notes the item's next run is handed, such as answers, corrections or a change of scope.",

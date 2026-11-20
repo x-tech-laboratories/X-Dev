@@ -108,10 +108,28 @@ the checks change, and moves on once they pass.
 
 ## Board
 
-`src/web/board/index.tsx` draws the board from three reads: the open items, `list_stage_runs` (the latest run of each
-stage on each item, with a line from its report through `report_summary`), and the stage files. It is one CSS grid,
-each lane's cells laid out with `display: contents`, so every stage column lines up across lanes and the whole board
-scrolls sideways inside itself on a narrow window.
+`src/web/board/index.tsx` draws the board from four reads: the open items, `list_stage_runs` (the latest run of each
+stage on each item, with a line from its report through `report_summary`, its cost, gates and questions), the stage
+files, and the runner's `list_run_changes` for the lines each finished run changed. It is one CSS grid of fixed-width
+stage columns, a lane per repository when grouped, that scrolls sideways inside itself and stacks on a phone. Each item
+is an `ItemCard` (`src/web/board/ItemCard.tsx`) in the column of its stage, which takes the item, the stages and its
+runs and knows nothing of the grid, so the frame can move onto X-Libs' board widget. Dropping a card on an earlier
+column calls `send_item_back`.
+
+## Runs page and diffs
+
+`src/web/runs/` lists `list_run_summaries`, every run without its transcript, and sums tokens and cost by stage and
+model with `sum_runs_by`. A run's tokens come from the result line's `usage`, added to the run after each turn. The
+item page's Changes section asks the runner for `get_item_diff`, which `src/server/item_diff.ts` reads with git in the
+item's worktree against the commit its first run started from, parses with `src/shared/diff/parse.ts` on parse-diff,
+and `src/web/diff/DiffView.tsx` draws.
+
+## Notifications
+
+`src/daemon/run_notices.ts` checks after every run write, and every GitHub sync, how the runs under way and the open
+items' pull requests changed since the last check (`run_notices` and `checks_notices` in
+`src/shared/runs/notices.ts`), and shows the kinds `desktop.json` has on through X-Libs' `Notifier`, each keyed by its
+item so a newer one replaces the older.
 
 ## History
 
