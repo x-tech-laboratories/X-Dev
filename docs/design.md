@@ -253,7 +253,8 @@ in the item's worktree. It runs on the user's own Claude login.
 - The session id is X-Dev's own, so a run waiting for answers resumes with `--resume <uuid>`.
 - Input is stream-json and stays open while the run works: the stage input, or the answers, is the
   first user message, the user's messages are written in as it runs, each with an id the session
-  echoes once it has read it, and `command_lifecycle` lines say when each is finished with. A
+  echoes once it has read it, and `command_lifecycle` lines say when each is finished with
+  (`completed`, or `cancelled` by an interrupt). A
   `control_request` of subtype `interrupt` halts the current step and is answered by a
   `control_response`. X-Dev closes the input once a turn's `result` arrives with no message of its own
   still waiting and the run not halted, and the session then ends.
@@ -409,8 +410,9 @@ five cents in all, through a Node script that spoke the protocol the runner spea
   `result`; the turn's own message is `completed` just after it.
 - A `control_request` of subtype `interrupt` sent during a 40-second command is answered at once,
   the turn ends with a `result` of `error_during_execution` and `terminal_reason` `aborted_tools`
-  after a `[Request interrupted by user for tool use]` user message, and the session stays open: the
-  next message is answered as usual.
+  after a `[Request interrupted by user for tool use]` user message, the message that turn answered is
+  reported `cancelled` rather than `completed`, and the session stays open: the next message is
+  answered as usual.
 - Each `result`'s `total_cost_usd` is the session's cost so far, not the turn's.
 
 ## Checked for milestone 7

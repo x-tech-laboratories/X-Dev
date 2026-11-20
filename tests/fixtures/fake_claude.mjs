@@ -116,7 +116,8 @@ async function turn(message, first) {
       interrupted = false;
       tool_result(id, "Interrupted");
       say({ type: "user", message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user for tool use]" }] }, session_id });
-      return finish("", true, "aborted_tools");
+      finish("", true, "aborted_tools");
+      return "cancelled";
     }
     tool_result(id, "slept");
     const heard = queued.shift();
@@ -155,9 +156,9 @@ async function serve() {
     while (!queued.length && !input_closed) await new Promise((resolve) => (wake = resolve));
     const message = queued.shift();
     if (!message) break;
-    await turn(message, first);
+    const ended = await turn(message, first);
     first = false;
-    say({ type: "command_lifecycle", command_uuid: message.uuid, state: "completed", session_id });
+    say({ type: "command_lifecycle", command_uuid: message.uuid, state: ended === "cancelled" ? "cancelled" : "completed", session_id });
   }
 }
 

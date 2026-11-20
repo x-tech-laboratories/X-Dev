@@ -106,7 +106,8 @@ export function start_live_run(options: LiveRunOptions): LiveRun {
     has_lifecycle = true;
     const id = String(message.command_uuid ?? "");
     if (message.state === "started") turn_active = true;
-    if (message.state === "completed") {
+    // An interrupt cancels the message its turn was answering rather than completing it.
+    if (message.state === "completed" || message.state === "cancelled") {
       outstanding.delete(id);
       end_if_idle();
     }
