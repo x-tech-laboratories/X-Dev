@@ -6,6 +6,9 @@
   "license": "GPL-3.0-or-later",
   "type": "module",
   "main": "out/main/index.js",
+  "bin": {
+    "x-dev-check": "src/cli/check.ts"
+  },
   "engines": {
     "node": ">=24"
   },
@@ -23,7 +26,8 @@
     "db:generate": "for config in src/shared/*/drizzle.config.ts; do drizzle-kit generate --config \"$config\" && x-libs-bundle-migrations \"$(dirname \"$config\")/migrations\" || exit 1; done",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "check": "node src/cli/check.ts"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.2",

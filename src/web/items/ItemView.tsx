@@ -14,6 +14,7 @@ import { Loaded, use_resource } from "@x-tech-laboratories/x-libs/web/react/stat
 import { ComboField } from "@x-tech-laboratories/x-libs/web/react/suggestions";
 import { Age } from "@x-tech-laboratories/x-libs/web/react/time";
 
+import type { GateOutcome } from "../../shared/gates/model.ts";
 import { issue_link, status_sections, type Item, type StatusSheet } from "../../shared/items/model.ts";
 import type { Run, RunState } from "../../shared/runs/model.ts";
 import { done, model_suggestions, type Stage } from "../../shared/stages/model.ts";
@@ -38,6 +39,13 @@ export function stage_label(stages: Stage[], id: string): string {
   if (id === "needs-input") return "Needs input";
   return stages.find((stage) => stage.id === id)?.label ?? id;
 }
+
+const gate_labels: Record<GateOutcome, [string, Tone]> = {
+  passed: ["Passed", "good"],
+  failed: ["Failed", "bad"],
+  warning: ["Warning", "warn"],
+  skipped: ["Not checked", "none"],
+};
 
 function money(amount: number): string {
   return `$${amount.toFixed(2)}`;
@@ -122,6 +130,55 @@ function RunControls({ item, stages, busy }: { item: Item; stages: Stage[]; busy
         Run {stage?.label ?? "Stage"}
       </button>
     </Toolbar>
+  );
+}
+
+// ── Gates ────────────────────────────────────────────────────────────────────
+
+function OverrideDialog({ run, gate, on_close }: { run: Run; gate: string; on_close: () => void }) {
+  const [reason, set_reason] = useState("");
+  async function save(): Promise<void> {
+    if (await succeeds(() => calls().override_gate(run.id, gate, reason))) on_close();
+  }
+  return (
+    <Dialog title={`Pass Over the ${gate} Gate`} on_close={on_close} buttons={<DialogButtons can_save={reason.trim() !== ""} on_save={() => void save()} on_cancel={on_close} />}>
+      <p className="muted">The reason is added to the run's report, so the next stage reads it.</p>
+      <textarea aria-label="Why it can be passed over" rows={4} value={reason} onChange={(event) => set_reason(event.currentTarget.value)} />
+    </Dialog>
+  );
+}
+
+function Gates({ run }: { run: Run }) {
+  const [overriding, set_overriding] = useState<string | null>(null);
+  if (!run.gates.length) return null;
+  const has_failed = run.gates.some((result) => result.outcome === "failed" || result.outcome === "warning");
+  return (
+    <FormGroup summary="Gates" open={has_failed}>
+      <ul className="gates">
+        {run.gates.map((result) => {
+          const override = run.overrides.find((each) => each.gate === result.gate);
+          return (
+            <li key={result.gate}>
+              <strong>{result.gate}</strong> <StateBadge labels={gate_labels} state={result.outcome} />
+              {override && <span className="small"> · passed over: {override.reason}</span>}
+              {result.findings.length > 0 && (
+                <ul className="small">
+                  {result.findings.map((finding) => (
+                    <li key={finding}>{finding}</li>
+                  ))}
+                </ul>
+              )}
+              {result.outcome === "failed" && !override && run.state === "failed" && (
+                <button type="button" onClick={() => set_overriding(result.gate)}>
+                  Pass Over…
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {overriding && <OverrideDialog run={run} gate={overriding} on_close={() => set_overriding(null)} />}
+    </FormGroup>
   );
 }
 
@@ -229,6 +286,7 @@ function RunCard({ run, stages, is_latest }: RunCardProps) {
         </p>
       )}
       {run.state === "waiting" && <Answers run={run} />}
+      <Gates run={run} />
       {run.report && (
         <FormGroup summary="Report" open={is_latest}>
           <Markdown text={run.report} />

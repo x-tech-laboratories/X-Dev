@@ -11,7 +11,8 @@ import { check_item, proposed, read_status, title_likeness, type Item, type Item
 import { items } from "../items/schema.ts";
 import { runs_api } from "./api.ts";
 import { migrations } from "./migrations/index.ts";
-import type { Question, Run, RunState } from "./model.ts";
+import { gates_cleared, type GateOverride, type GateResult } from "../gates/model.ts";
+import { needs_input, type Question, type Run, type RunState } from "./model.ts";
 import { runs, runs_tables } from "./schema.ts";
 
 // ── Reading ──────────────────────────────────────────────────────────────────
@@ -20,7 +21,7 @@ type RunRow = typeof runs.$inferSelect;
 type ItemRow = typeof items.$inferSelect;
 
 function as_run(row: RunRow): Run {
-  return { ...row, state: row.state as RunState, questions: JSON.parse(row.questions) as Question[] };
+  return { ...row, state: row.state as RunState, questions: JSON.parse(row.questions) as Question[], gates: JSON.parse(row.gates) as GateResult[], overrides: JSON.parse(row.overrides) as GateOverride[] };
 }
 
 function as_item(row: ItemRow): Item {
@@ -67,19 +68,25 @@ export function insert_run(database: SqlDatabase, start: RunStart): string {
   return id;
 }
 
-export type RunChanges = Partial<Omit<Run, "id" | "item_id" | "questions">> & { questions?: Question[] };
+export type RunChanges = Partial<Omit<Run, "id" | "item_id" | "questions" | "gates" | "overrides">> & { questions?: Question[]; gates?: GateResult[]; overrides?: GateOverride[] };
 
 export function update_run(database: SqlDatabase, id: string, changes: RunChanges): void {
-  const { questions, ...rest } = changes;
+  const { questions, gates, overrides, ...rest } = changes;
   drizzle_of(database)
     .update(runs)
-    .set({ ...rest, ...(questions ? { questions: JSON.stringify(questions) } : {}) })
+    .set({ ...rest, ...(questions ? { questions: JSON.stringify(questions) } : {}), ...(gates ? { gates: JSON.stringify(gates) } : {}), ...(overrides ? { overrides: JSON.stringify(overrides) } : {}) })
     .where(eq(runs.id, id))
     .run();
 }
 
 export function set_item_fields(database: SqlDatabase, id: string, changes: Partial<Pick<ItemRow, "stage" | "branch" | "status" | "notes" | "body" | "closed_at" | "issue_number">>): void {
   drizzle_of(database).update(items).set(changes).where(eq(items.id, id)).run();
+}
+
+// A run whose report is good and whose failed gates are all overridden hands its report on, moving the item on.
+export function finish_run(database: SqlDatabase, run: Run): void {
+  update_run(database, run.id, { state: "done", error: "" });
+  set_item_fields(database, run.item_id, { notes: "", ...(run.next === needs_input ? {} : { stage: run.next }) });
 }
 
 // ── Proposals ────────────────────────────────────────────────────────────────
@@ -138,6 +145,16 @@ export const runs_feature = define_feature({
       const run = find_run(database, id);
       if (run.state !== "done") throw new Error("only a finished run's report can be changed");
       update_run(database, id, { report: report.trim() });
+    },
+    override_gate: (database: SqlDatabase, run_id: string, gate: string, reason: string): void => {
+      const run = find_run(database, run_id);
+      if (!run.gates.some((result) => result.gate === gate && result.outcome === "failed")) throw new Error(`the ${gate} gate did not fail on that run`);
+      if (!reason.trim()) throw new Error("say why the gate can be passed over");
+      const overrides = [...run.overrides.filter((override) => override.gate !== gate), { gate, reason: reason.trim() }];
+      // The next stage reads why each gate was passed over.
+      const report = `${run.report}\n\n**Gate passed over:** ${gate}: ${reason.trim()}`;
+      update_run(database, run_id, { overrides, report });
+      if (run.state === "failed" && run.next && gates_cleared(run.gates, overrides)) finish_run(database, { ...run, overrides, report });
     },
     save_item_notes: (database: SqlDatabase, item_id: string, notes: string): void => {
       find_item(database, item_id);

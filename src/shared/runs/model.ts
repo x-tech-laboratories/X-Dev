@@ -3,6 +3,7 @@
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
+import type { GateOverride, GateResult } from "../gates/model.ts";
 import { status_sections, type Item } from "../items/model.ts";
 
 // ── Shapes ───────────────────────────────────────────────────────────────────
@@ -38,6 +39,9 @@ export interface Run {
   started_at: string;
   ended_at: string | null;
   proposals: number;
+  end_commit: string;
+  gates: GateResult[];
+  overrides: GateOverride[];
 }
 
 // A report's Next when the stage waits on the user.
