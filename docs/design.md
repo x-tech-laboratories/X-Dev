@@ -347,6 +347,18 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 6. **Board and item pages**, the diff view, notifications.
 7. **Android and remote daemons**.
 
+## Checked for milestone 7
+
+- A daemon that lets other devices connect, signing in, the runner's calls through it with the admin check, the
+  settings it refuses from elsewhere and the open CORS are tested with Fastify on 127.0.0.1 and a stand-in runner that
+  starts nothing; a real run started from another device was not tried.
+- Two copies of the store converge on items, runs with their questions, answers and reports, and proposals, through
+  the sync engine directly rather than over the network; a daemon that both serves sync to others and syncs with a
+  server, passing changes along, is not tested.
+- The phone's and browser's calls to a daemon, its event stream, the first-connection screen, the Connections and
+  Other devices settings and phone notices are tested in jsdom against stand-ins; the desktop app's switch between
+  daemons and its notices for a daemon elsewhere are not covered by tests.
+
 ## Checked for milestone 5
 
 - The labels, comments, body, closing, pull request and checks are tested against a stand-in for
