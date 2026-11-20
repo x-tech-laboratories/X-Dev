@@ -11,6 +11,10 @@ keep their own copy of the data, work offline, and sync with the server whenever
 
 What it does so far:
 
+- **Board:** the page X-Dev opens on. A swimlane for each open item, grouped by repository, and a column for each
+  stage; each cell shows that stage's latest run on the item with a line from its report, earlier stages it went past
+  without a run as skipped, and the stage the item is at marked, with Run. The inbox of proposals sits above the lanes;
+  lanes filter by repository and words, and finished items fold away unless shown.
 - **Items:** each feature or bug fix in one GitHub repository, with its issue, the stage it is at, and a status sheet
   that every stage reads and keeps current. Items are added, edited, closed and reopened on the Items page.
 - **Stages:** the steps every item goes through, from Triage to Close, each a Claude Code agent file with its own
