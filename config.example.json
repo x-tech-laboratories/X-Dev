@@ -1,0 +1,4 @@
+{
+  "database": "dev-data/dev.db",
+  "backups_folder": "dev-data/backups"
+}
