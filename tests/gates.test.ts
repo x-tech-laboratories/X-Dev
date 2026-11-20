@@ -93,8 +93,9 @@ describe("code without its strings", () => {
 });
 
 describe("the comments gate", () => {
-  it("lets a file's overview start after a #! line", () => {
+  it("lets a file's overview start after a #! line, even one the change left alone", () => {
     expect(check_comments([changed("src/cli.ts", ["#!/usr/bin/env node", "// The overview,", "// at length."])]).outcome).toBe("passed");
+    expect(check_comments([{ ...changed("src/cli.ts", ["// The overview,", "// at length."], "modified", 2), first_line: "#!/usr/bin/env node" }]).outcome).toBe("passed");
   });
 
   it("fails a comment of more than one line, but not banners, the file's opening comment or separate one-liners", () => {
@@ -180,7 +181,7 @@ describe("reading what changed", () => {
 
     const files = await read_changes(folder, base);
     expect(files).toEqual([
-      { path: "a.ts", status: "modified", added: [{ line: 2, text: "console.log(a);" }] },
+      { path: "a.ts", status: "modified", added: [{ line: 2, text: "console.log(a);" }], first_line: "const a = 1;" },
       { path: "tests/a.test.ts", status: "added", added: [{ line: 1, text: "it('a', () => {});" }, { line: 2, text: "" }] },
     ]);
     expect(await read_commits(folder, base)).toEqual([{ sha: git("rev-parse", "HEAD"), message: "feat: log a\n\nAssisted-by: Claude Code" }]);

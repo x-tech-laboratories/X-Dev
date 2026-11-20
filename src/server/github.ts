@@ -23,8 +23,7 @@ export async function github_account(program = "gh"): Promise<GitHubAccount> {
 const code_wait_ms = 20_000;
 const device_page = "https://github.com/login/device";
 
-// Starts gh's browser sign-in and gives back the one-time code to enter on GitHub's device page; gh finishes by
-// itself once the user has, and on_done hears of it. The token stays in gh's own store.
+// Starts gh's browser sign-in, giving back the code to enter on GitHub; on_done hears when gh has stored the token.
 export function start_github_sign_in(program: string, on_done: (signed_in: boolean) => void): Promise<GitHubSignIn> {
   return new Promise((resolve, reject) => {
     let seen = "";

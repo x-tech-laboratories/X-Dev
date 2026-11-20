@@ -22,6 +22,8 @@ export interface ChangedFile {
   status: "added" | "modified" | "deleted" | "renamed";
   // The lines the change added, each with its line number in the new file.
   added: { line: number; text: string }[];
+  // The file's first line, when the change did not add it, so a #! above the change is still seen.
+  first_line?: string;
 }
 
 export interface Commit {
@@ -157,7 +159,8 @@ export function check_comments(files: ChangedFile[]): GateResult {
   const findings: string[] = [];
   for (const file of files.filter((each) => code_file.test(each.path))) {
     // The file's opening overview may run long; after a #! line it starts on the second line.
-    const overview_line = file.added[0]?.line === 1 && file.added[0].text.startsWith("#!") ? 2 : 1;
+    const first = file.added[0]?.line === 1 ? file.added[0].text : (file.first_line ?? "");
+    const overview_line = first.startsWith("#!") ? 2 : 1;
     let run_start: number | null = null;
     let run_length = 0;
     let last_line = -1;
