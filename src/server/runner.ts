@@ -12,8 +12,8 @@ import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 
 import { check_item, is_repository, issue_link, item_kinds, repository_of_remote, read_status, type Item, type ItemInput, type ItemKind } from "../shared/items/model.ts";
 import { answers_input, branch_name_of, build_run_input, needs_input, parse_report, type Run, type StreamResult } from "../shared/runs/model.ts";
-import { read_runner_settings, type ItemDraft, type RunnerMethods, type RunnerSettings, type StartOptions } from "../shared/runs/runner.ts";
-import { add_run_tokens, finish_run, find_run, insert_run, latest_report, runs_in_state, set_item_fields, update_run } from "../shared/runs/store.ts";
+import { longest_run_wait_seconds, read_runner_settings, type ItemDraft, type RunnerMethods, type RunnerSettings, type StartOptions, type WatchedRun } from "../shared/runs/runner.ts";
+import { add_run_tokens, finish_run, find_run, insert_run, latest_report, runs_in_state, set_item_fields, update_run, watched_run } from "../shared/runs/store.ts";
 import { read_changes, read_file_change, read_run_changes, revert_file, worktree_of } from "./item_diff.ts";
 import { list_worktree_files, read_worktree_file } from "./worktree_files.ts";
 import { checkout_state, run_gates } from "./gates.ts";
@@ -84,6 +84,16 @@ async function ensure_worktree(repository_folder: string, branch: string): Promi
   if (has_branch) await git(["worktree", "add", worktree, branch], repository_folder);
   else await git(["worktree", "add", "-b", branch, worktree, await default_branch(repository_folder)], repository_folder);
   return worktree;
+}
+
+// ── Waiting ──────────────────────────────────────────────────────────────────
+
+// How often a wait for a run to change reads it again, each read a statement of its own and no transaction.
+export const run_wait_poll_ms = 250;
+
+// What a wait for a run compares: its state, the approvals it waits on and its questions.
+function run_wait_key(run: WatchedRun): string {
+  return JSON.stringify([run.state, run.permissions.map((request) => request.request_id), run.questions]);
 }
 
 // ── Runner ───────────────────────────────────────────────────────────────────
@@ -271,6 +281,13 @@ export function create_runner({ database, stages, run_tools, folder, after_write
     if (!is_own_run(run.id)) throw new Error("that run was started on another computer, which holds its worktree and session; act on it from X-Dev there, or connect to that computer");
   }
 
+  // The run by its id, refused unless this daemon started it, as every call that changes a run is.
+  function own_run(run_id: string): Run {
+    const run = find_run(database(), run_id);
+    require_own(run);
+    return run;
+  }
+
   function require_free(): void {
     if (current) throw new Error("a run is under way; wait for it or stop it first");
   }
@@ -351,7 +368,7 @@ export function create_runner({ database, stages, run_tools, folder, after_write
     start_run,
     stop_run: (run_id) => {
       if (current?.run_id !== run_id) {
-        const run = find_run(database(), run_id);
+        const run = own_run(run_id);
         if (run.state !== "waiting") throw new Error("that run is not under way");
         return change(run_id, { state: "stopped", ended_at: now() });
       }
@@ -360,22 +377,29 @@ export function create_runner({ database, stages, run_tools, folder, after_write
     interject_run: (run_id, text) => {
       const message = text.trim();
       if (!message) throw new Error("write the message first");
+      const run = own_run(run_id);
       live_of(run_id).send_message(message);
-      const run = find_run(database(), run_id);
       const item = item_of(run.item_id);
       // The next stage reads in the status sheet how the user steered this one.
       const status = steer_decisions(item.status, stage_of(run.stage).label, message);
       if (status) set_item_fields(database(), item.id, { status: JSON.stringify(status) });
       change(run_id, { interjections: [...run.interjections, { text: message, at: now() }] });
     },
-    interrupt_run: (run_id) => live_of(run_id).interrupt(),
+    interrupt_run: async (run_id) => {
+      own_run(run_id);
+      await live_of(run_id).interrupt();
+    },
     set_run_mode: async (run_id, mode) => {
       if (!is_run_mode(mode)) throw new Error(`"${mode}" is not a permission mode`);
+      own_run(run_id);
       await live_of(run_id).set_mode(mode);
     },
-    answer_permission: (run_id, request_id, decision, message) => live_of(run_id).answer_permission(request_id, decision, message),
+    answer_permission: (run_id, request_id, decision, message) => {
+      own_run(run_id);
+      live_of(run_id).answer_permission(request_id, decision, message);
+    },
     retry_run: async (run_id, options) => {
-      const run = find_run(database(), run_id);
+      const run = own_run(run_id);
       if (!can_retry(run)) throw new Error(run.state === "failed" ? "that run waits on its pull request's checks, which clear by themselves" : "only a failed or stopped run can be retried");
       const latest = database().prepare("SELECT id FROM runs WHERE item_id = ? AND stage = ? AND state != 'discarded' ORDER BY started_at DESC LIMIT 1").get(run.item_id, run.stage) as { id: string } | undefined;
       if (latest?.id !== run_id) throw new Error("only the stage's latest run can be retried");
@@ -455,6 +479,9 @@ export function create_runner({ database, stages, run_tools, folder, after_write
     get_file: async (item_id, path) => read_worktree_file(item_worktree(item_id), path),
     revert_file: async (item_id, scope, run_id, path) => {
       if (current && find_run(database(), current.run_id).item_id === item_id) throw new Error("a run on this item is under way; stop it or let it finish first");
+      // The run whose changes are put back, the item's latest unless named, must be one this daemon started.
+      const acting = run_id || (database().prepare("SELECT id FROM runs WHERE item_id = ? AND state != 'discarded' ORDER BY started_at DESC LIMIT 1").get(item_id) as { id: string } | undefined)?.id;
+      if (acting) own_run(acting);
       const item = item_of(item_id);
       const done_at = await revert_file({ database: database(), item, repositories: read_settings().repositories }, scope, run_id, path);
       if (!done_at.run_id) return after_write();
@@ -467,6 +494,18 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       after_write();
     },
     list_run_changes: (run_ids) => read_run_changes(database(), run_ids, read_settings().repositories),
+    get_run_update: async (run_id, timeout_seconds) => {
+      const seconds = Math.min(Math.max(Number(timeout_seconds) || 0, 0), longest_run_wait_seconds);
+      const deadline = Date.now() + seconds * 1000;
+      const before = run_wait_key(watched_run(database(), run_id));
+      for (;;) {
+        const run = watched_run(database(), run_id);
+        if (run_wait_key(run) !== before) return { run, changed: true };
+        const left = deadline - Date.now();
+        if (left <= 0) return { run, changed: false };
+        await new Promise((resolve) => setTimeout(resolve, Math.min(run_wait_poll_ms, left)));
+      }
+    },
     sync_github: async (item_id) => {
       if (!github) throw new Error("this copy of X-Dev does not reach GitHub");
       return github.sync_item(item_id, { find_pull_request: true });

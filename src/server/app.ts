@@ -11,7 +11,7 @@ import { register_call_table } from "@x-tech-laboratories/x-libs/server/call_tab
 import { register_open_cors } from "@x-tech-laboratories/x-libs/server/cors";
 import { register_mcp_route } from "@x-tech-laboratories/x-libs/server/mcp";
 import { register_error_replies, register_lenient_json_body } from "@x-tech-laboratories/x-libs/server/replies";
-import { register_accounts } from "@x-tech-laboratories/x-libs/server/account_sign_in";
+import { calls_under, register_accounts } from "@x-tech-laboratories/x-libs/server/account_sign_in";
 import { AccountStore } from "@x-tech-laboratories/x-libs/server/account_store";
 import type { Accounts } from "@x-tech-laboratories/x-libs/server/passwords";
 import type { BackupMethods } from "@x-tech-laboratories/x-libs/backup_protocol";
@@ -68,6 +68,11 @@ export interface Abilities {
 
 const version = (JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version;
 
+// The narrower tokens Your account offers: one that files items for another session and starts nothing.
+export const token_scopes = {
+  add_items: { label: "Add items", hint: "Reads everything and adds items with add_item, opening their issues; starts no run and edits no item.", calls: ["add_item"] },
+};
+
 // ── App ──────────────────────────────────────────────────────────────────────
 
 export async function build_app(options: AppOptions): Promise<FastifyInstance> {
@@ -76,17 +81,22 @@ export async function build_app(options: AppOptions): Promise<FastifyInstance> {
   register_error_replies(app);
   // A phone's page calls from an origin of its own with a token, the sign-in included, and a browser sends no cookie across origins.
   await register_open_cors(app);
-  // The event stream writes its own head, so it carries the open origin itself, or a phone never hears of changes.
-  app.addHook("onRequest", async (request, reply) => {
-    if (request.url.split("?")[0] === "/api/events") reply.raw.setHeader("access-control-allow-origin", "*");
-  });
-  const accounts = new AccountStore({ database: options.database, app_name: "X-Dev", declared: options.declared, token_prefix: "xf" });
+  const accounts = new AccountStore({ database: options.database, app_name: "X-Dev", declared: options.declared, token_prefix: "xf", token_scopes });
   const admin = { role: accounts.top_role };
   // Backups hold the accounts, stages steer agents and the runner starts them with this computer's rights: admins only.
   const admin_only = ["/api/backup/", "/api/stages/", "/api/runner/", "/api/github_webhook/"];
   // GitHub posts without a session; its signature over the body is what lets a delivery in.
   const open_paths = options.webhooks ? [webhook_path] : [];
-  await register_accounts(app, { accounts, cookie_name: "x_dev_session", open_paths, read_only_paths: ["/api/mcp"], needed: (_method, path) => (admin_only.some((prefix) => path.startsWith(prefix)) ? admin : "any") });
+  await register_accounts(app, {
+    accounts,
+    cookie_name: "x_dev_session",
+    open_paths,
+    read_only_paths: ["/api/mcp"],
+    needed: (_method, path) => (admin_only.some((prefix) => path.startsWith(prefix)) ? admin : "any"),
+    // A read-only or scoped token may POST the calls that read, and its scope's, under the tables MCP also serves.
+    call_of: calls_under("/api/call", "/api/runner", "/api/stages"),
+    is_read_only,
+  });
 
   const changes = options.changes ?? new EventStream();
   const database = () => options.database;

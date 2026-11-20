@@ -231,8 +231,9 @@ starts or how freely their actions are approved, which change only on that compu
 gives the code to enter on GitHub's device page from that device. A user who is not an admin sees and edits items but
 starts no runs and changes no stages. Its MCP endpoint offers the same, as [Other programs](#other-programs-the-api-and-mcp) sets out.
 
-A run started on one computer is answered, stopped and discarded only through the daemon that started it, which holds
-its worktree and session; a copy that synced the run says so when asked.
+A run started on one computer is answered, stopped, interrupted, written to, switched to another mode, approved,
+retried and discarded, and its files reverted, only through the daemon that started it, which holds its worktree and
+session; a copy that synced the run says so when asked.
 
 ## Signing in
 
@@ -281,13 +282,20 @@ daemon that lets other devices connect, behind a token made on **Your account** 
   session adds an item with `add_item`, which also adds a checkout given by its path and finds or opens the GitHub issue,
   as the New item form does; `describe_item` turns a rough note into a draft for it first. The tools that start or undo
   an agent's work (`start_run`, `answer_run`, `discard_run`) or change the computer that runs the agents (`add_repository`,
-  `save_stage` and the other stage tools) say so in their descriptions.
+  `save_stage` and the other stage tools) say so in their descriptions. A program following a run calls
+  `get_run_update(run_id, timeout_seconds)`, which answers as soon as the run's state, the tool calls it waits on for
+  approval or its questions change, or when the wait runs out (two minutes at most), instead of polling `get_run`;
+  `list_permission_requests(run_id)` lists the waiting approvals, each `{request_id, tool, input, reason}`, without the
+  transcript, and `lookup_item(repository, issue_number)` finds the item behind a GitHub issue.
 
 What a token reaches is what its user reaches: an admin's every tool, another user's the data tools alone (adding,
 editing and closing items with `save_item`, but no runs, stages, checkouts or GitHub), and a token made read-only on
-**Your account** only the tools that read. Tokens have no narrower scope, such as adding items only. Wherever
-it is reached from, the runner refuses to change `claude_program`, `gh_program` or the permission mode, which change
-only in X-Dev's own window on the computer that runs the agents.
+**Your account** only the tools that read. A token made with the **Add items** scope reads as a read-only one does and
+may also call `add_item`, on the API (`POST /api/runner/add_item`) and over MCP alike, so another session can file
+items and nothing more: it starts no run, answers none, and edits no item. Since `add_item` is a runner call, it needs
+an admin's token on a daemon that runs agents. Wherever it is reached from, the runner refuses to change
+`claude_program`, `gh_program` or the permission mode, which change only in X-Dev's own window on the computer that
+runs the agents.
 
 To add the server to Claude Code:
 
@@ -295,17 +303,38 @@ To add the server to Claude Code:
 claude mcp add --transport http x-dev https://<server>/api/mcp --header "Authorization: Bearer <token>"
 ```
 
-The desktop app can serve the same tools itself, on its own data and with no token: turn on **Settings → MCP server**,
-and while its daemon runs it listens on `http://127.0.0.1:3921/mcp` (the port is set there too), reachable only from
-the same computer. Every program on this computer can then start agent runs through it, so leave it off on a computer
-other people sign in to.
+The desktop app can serve the same tools itself, on its own data: turn on **Settings → MCP server**, and while its
+daemon runs it listens on `http://127.0.0.1:3921/mcp` (the port is set there too), reachable only from the same
+computer. With no token, which is how it starts, every program on this computer, under any user, can start agent runs
+through it. **Require a token** there makes the daemon keep a token in `mcp-token` in the profile folder, readable by
+you alone, and refuse any request that does not send it as `Authorization: Bearer <token>`; turning it off forgets the
+token, so turning it on again makes a new one. Settings then shows the `claude mcp add` line and, under **Client
+config**, the entry to paste:
 
 ```sh
-claude mcp add --transport http x-dev http://127.0.0.1:3921/mcp
+claude mcp add --transport http --header "Authorization: Bearer $(cat '<profile>/mcp-token')" x-dev http://127.0.0.1:3921/mcp
 ```
 
-On a computer with a managed MCP config (`/etc/claude-code/managed-mcp.json`), Claude Code refuses `claude mcp add`;
-add the server to that file instead, under `mcpServers`, with the same `type`, `url` and `headers`.
+On a computer with a managed MCP config, Claude Code refuses `claude mcp add`; add the server to that file instead,
+under `mcpServers`, as **Client config** gives it:
+
+```json
+{
+  "mcpServers": {
+    "x-dev": {
+      "type": "http",
+      "url": "http://127.0.0.1:3921/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+A managed config is usually made by the machine's own configuration, such as a NixOS module, and is often readable by
+every user, so the token written into it is readable by them too; there, keep the token in a file only the right user
+reads and have that configuration put the header together from it, or leave the token off and keep the MCP server off
+on a computer other people sign in to. Without a token, the entry has no `headers`. The same goes for the server's
+`/api/mcp`, whose entry carries the token made on **Your account**.
 
 A change made through either reaches every open page and device as if made there.
 

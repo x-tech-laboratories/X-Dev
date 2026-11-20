@@ -133,6 +133,8 @@ const local_mcp = create_local_mcp({
   api: mcp_api(true, true),
   is_read_only,
   settings_file: join(profile, "mcp.json"),
+  // Kept only while Require a token is on, readable by this user alone.
+  token_file: join(profile, "mcp-token"),
   default_port: 3921,
   call: (method, args) => mcp_call(method, args),
 });

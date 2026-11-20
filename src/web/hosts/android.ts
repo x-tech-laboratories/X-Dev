@@ -8,7 +8,7 @@ import { App } from "@capacitor/app";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import type { BackupClient } from "@x-tech-laboratories/x-libs/backup_protocol";
 import { create_connections } from "@x-tech-laboratories/x-libs/connections";
-import { notice_id } from "@x-tech-laboratories/x-libs/phone_notices";
+import { keep_phone_notices } from "@x-tech-laboratories/x-libs/phone_notices";
 import { phone_certificates } from "@x-tech-laboratories/x-libs/phone_certificates";
 import { local_connection_storage } from "@x-tech-laboratories/x-libs/web/connection_storage";
 
@@ -42,15 +42,20 @@ export function read_notice_kinds(saved: string | null): Record<NoticeKind, bool
 
 // ── Notices ──────────────────────────────────────────────────────────────────
 
-// Run notices show at once and never ask for exact alarms, which would open a settings screen; a tap opens the item.
+// Run notices show at once through X-Libs' phone notices, with no exact alarm; a tap opens the item.
 export function phone_notices(plugin: typeof LocalNotifications, open_route: (route: string) => void): { show: (title: string, body: string, key: string, url: string) => void } {
-  void plugin.addListener("localNotificationActionPerformed", (action) => {
-    const route = route_of_link(String((action.notification.extra as { url?: unknown } | undefined)?.url ?? ""));
-    if (route) open_route(route);
+  const notices = keep_phone_notices({
+    plugin,
+    read: () => [],
+    exact: false,
+    on_tap: (extra) => {
+      const route = route_of_link(String(extra.url ?? ""));
+      if (route) open_route(route);
+    },
   });
-  void plugin.checkPermissions().then(({ display }) => (display === "granted" || display === "denied" ? undefined : plugin.requestPermissions()));
+  void notices.ask_permission();
   return {
-    show: (title, body, key, url) => void plugin.schedule({ notifications: [{ id: notice_id(key), title, body, extra: { url }, isExactNotification: false }] }).catch((error: unknown) => console.error("could not show a notice", error)),
+    show: (title, body, key, url) => void notices.show({ key, title, body, extra: { url } }).catch((error: unknown) => console.error("could not show a notice", error)),
   };
 }
 

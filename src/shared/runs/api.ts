@@ -7,7 +7,7 @@ import type { ApiSpec } from "@x-tech-laboratories/x-libs/api_spec";
 import { id_of, text } from "../api_schemas.ts";
 import { item_kinds } from "../items/model.ts";
 import { run_modes } from "./modes.ts";
-import { permission_modes, type RunnerMethods } from "./runner.ts";
+import { longest_run_wait_seconds, permission_modes, type RunnerMethods } from "./runner.ts";
 
 // ── Calls ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +28,10 @@ export const runs_api = {
   list_watched_runs: {
     description: "Lists the runs under way and the runs named, each with its item's title, its state, how many proposals it made, the first line of its report, its error and its first question, so a program can tell when one finished, failed or asked.",
     params: [{ name: "run_ids", schema: { type: "array", items: { type: "string" }, description: "The ids of runs seen under way before; empty for only those under way now." } }],
+  },
+  list_permission_requests: {
+    description: "Lists the tool calls a run waits on the user to allow or refuse, without its transcript: each request's id, which answer_permission takes, the tool, its input with long fields cut, and Claude Code's reason for asking. Empty when none waits.",
+    params: [{ name: "run_id", schema: id_of("run") }],
   },
   list_recent_runs: {
     description: "Lists the latest runs across every item, newest first.",
@@ -182,6 +186,13 @@ export const runner_api: ApiSpec<RunnerMethods> = {
     description: "Puts one changed file back as it was when the scope started: restored from that commit, or removed when the change added it. Refused while a run on the item is under way. The run and the item's status sheet note it, so later stages do not bring the change back.",
     params: [{ name: "item_id", schema: id_of("item") }, { name: "scope", schema: { type: "string", enum: ["run", "item"], description: "run for what the run changed since it started, item for everything since the item's work started." } }, { name: "run_id", schema: text("The run for the run scope; empty for the item's latest run.") }, { name: "path", schema: text("The file's path in the worktree, as get_changes lists it.") }],
     destructive: true,
+  },
+  get_run_update: {
+    description: `Waits for a run to change and gives it back: as soon as its state, the tool calls it waits on for approval or its questions change, or as it is once the wait runs out, at most ${longest_run_wait_seconds} seconds. The run comes with its item's title, its stage and state, the first line of its report, its error, every question and every waiting approval as list_permission_requests gives them; changed says whether anything changed. Follow a run with it instead of calling get_run again and again. Any run can be watched, including one another computer started.`,
+    params: [
+      { name: "run_id", schema: id_of("run") },
+      { name: "timeout_seconds", schema: { type: "number", minimum: 0, maximum: longest_run_wait_seconds, description: `How long to wait at most, in seconds; more than ${longest_run_wait_seconds} counts as ${longest_run_wait_seconds}.` } },
+    ],
   },
   list_run_changes: {
     description: "The lines each finished run added and removed, by run id, for the runs whose worktree is on the computer that runs the agents.",

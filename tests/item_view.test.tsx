@@ -63,6 +63,7 @@ function fake_page(with_runner = true) {
     list_files: vi.fn(async () => ({ paths: ["README.md", "docs/guide.md", "logo.png", "src/board.ts"], truncated: true })),
     get_file: vi.fn(async (_item_id: string, path: string) => (path === "logo.png" ? { path, size: 9, symlink: false, text: null, reason: "binary" as const } : { path, size: 20, symlink: false, text: "# Guide\nRead me.\n", reason: "" as const })),
     list_run_changes: vi.fn(async () => ({})),
+    get_run_update: vi.fn(),
   };
   // Adding and taking run the daemon's own code over the recorded calls, as they do on the daemon.
   const runner = { ...recorded, ...create_item_calls({ database: () => database, after_write: () => undefined, runner: recorded }) } satisfies RunnerMethods;

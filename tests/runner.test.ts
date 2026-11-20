@@ -230,6 +230,75 @@ describe("the runner", () => {
     await expect(runner.methods.discard_run(waiting)).rejects.toThrow("started on another computer");
     expect(store.get_run(waiting).state).toBe("waiting");
   });
+
+  it("refuses every call that changes a run another computer started, leaving it as it was", async () => {
+    const { store, runner, item, database } = await setup();
+    const id = item("Plan it.");
+    const started = { item_id: id, stage: "plan", model: "", effort: "", session_id: "elsewhere", start_commit: "", status_before: "{}", input: "", started_at: "2026-11-20T10:00:00Z" };
+    const running = insert_run(database, started);
+    const waiting = insert_run(database, { ...started, started_at: "2026-11-20T11:00:00Z" });
+    update_run(database, waiting, { state: "waiting" });
+    const failed = insert_run(database, { ...started, stage: "specify", started_at: "2026-11-20T12:00:00Z" });
+    update_run(database, failed, { state: "failed", error: "It broke." });
+
+    const elsewhere = "started on another computer";
+    expect(() => runner.methods.stop_run(waiting)).toThrow(elsewhere);
+    expect(() => runner.methods.stop_run(running)).toThrow(elsewhere);
+    expect(() => runner.methods.interject_run(running, "Keep it small.")).toThrow(elsewhere);
+    await expect(runner.methods.interrupt_run(running)).rejects.toThrow(elsewhere);
+    await expect(runner.methods.set_run_mode(running, "acceptEdits")).rejects.toThrow(elsewhere);
+    expect(() => runner.methods.answer_permission(running, "request-1", "allowed", "")).toThrow(elsewhere);
+    await expect(runner.methods.retry_run(failed, {})).rejects.toThrow(elsewhere);
+    await expect(runner.methods.revert_file(id, "run", failed, "README.md")).rejects.toThrow(elsewhere);
+    await expect(runner.methods.revert_file(id, "item", "", "README.md")).rejects.toThrow(elsewhere);
+
+    expect([store.get_run(running).state, store.get_run(waiting).state, store.get_run(failed).state]).toEqual(["running", "waiting", "failed"]);
+    expect(store.get_run(running).interjections).toEqual([]);
+    expect(store.list_runs(id)).toHaveLength(3);
+  });
+});
+
+describe("waiting for a run to change", () => {
+  it("gives the run back as it is once the wait runs out with nothing changed", async () => {
+    const { runner, item, database } = await setup();
+    const run_id = insert_run(database, { item_id: item("Plan it."), stage: "plan", model: "", effort: "", session_id: "s", start_commit: "", status_before: "{}", input: "", started_at: "2026-11-20T10:00:00Z" });
+
+    const update = await runner.methods.get_run_update(run_id, 0);
+
+    expect(update).toMatchObject({ changed: false, run: { id: run_id, item_title: "Board with swimlanes", stage: "plan", state: "running", questions: [], permissions: [] } });
+  });
+
+  it("answers as soon as the run's state or questions change, even one another computer started", async () => {
+    const { runner, item, database } = await setup();
+    const run_id = insert_run(database, { item_id: item("Plan it."), stage: "plan", model: "", effort: "", session_id: "s", start_commit: "", status_before: "{}", input: "", started_at: "2026-11-20T10:00:00Z" });
+    const asked = [{ question: "Which board layout?", why: "It changes the plan.", choices: ["Lanes", "Columns"] }];
+    setTimeout(() => update_run(database, run_id, { state: "waiting", questions: asked }), 100);
+
+    const begun = Date.now();
+    const update = await runner.methods.get_run_update(run_id, 20);
+
+    expect(Date.now() - begun).toBeLessThan(5_000);
+    expect(update).toMatchObject({ changed: true, run: { state: "waiting", question: "Which board layout?", questions: asked } });
+    await expect(runner.methods.get_run_update("nothing", 1)).rejects.toThrow("no run nothing");
+  });
+
+  it("answers once a tool call waits for approval, listing it without the transcript", async () => {
+    const { store, runner, item } = await setup();
+    const run_id = await runner.methods.start_run(item("PERMIT STATUS"), { mode: "default" });
+
+    let update = await runner.methods.get_run_update(run_id, 20);
+    while (update.run.permissions.length === 0 && update.run.state === "running") update = await runner.methods.get_run_update(run_id, 20);
+
+    const waiting = { tool: "Bash", input: { command: "rm -rf build" }, reason: "It changes files outside the worktree." };
+    expect(update).toMatchObject({ changed: true, run: { state: "running", awaiting: "Bash", permissions: [waiting] } });
+    const request_id = update.run.permissions[0]!.request_id;
+    expect(store.list_permission_requests(run_id)).toEqual([{ request_id, ...waiting }]);
+
+    runner.methods.answer_permission(run_id, request_id, "allowed", "");
+    await runner.idle();
+    expect(store.list_permission_requests(run_id)).toEqual([]);
+    expect(runner_api.get_run_update.params.map((param) => param.name)).toEqual(["run_id", "timeout_seconds"]);
+  });
 });
 
 // Waits until the run's saved transcript shows the check passing.
@@ -301,8 +370,11 @@ describe("a live run", () => {
   });
 
   it("refuses to interrupt a run that is not under way", async () => {
-    const { runner } = await setup();
-    expect(() => runner.methods.interrupt_run("nothing")).toThrow("that run is not under way");
+    const { runner, item } = await setup();
+    const run_id = await runner.methods.start_run(item("Plan it. STATUS"), {});
+    await runner.idle();
+    await expect(runner.methods.interrupt_run(run_id)).rejects.toThrow("that run is not under way");
+    await expect(runner.methods.interrupt_run("nothing")).rejects.toThrow("no run nothing");
   });
 });
 

@@ -15,7 +15,9 @@ import { migrations } from "./migrations/index.ts";
 import { gates_cleared, type GateOverride, type GateResult } from "../gates/model.ts";
 import { gate_marks, needs_input, report_summary, type Interjection, type Question, type Revert, type Run, type RunState, type RunSummary, type StageRun, type TokenCounts } from "./model.ts";
 import type { RunSnapshot } from "./notices.ts";
+import type { PermissionRequest, WatchedRun } from "./runner.ts";
 import { runs, runs_tables } from "./schema.ts";
+import { read_transcript, waiting_permissions } from "./transcript.ts";
 
 // ── Reading ──────────────────────────────────────────────────────────────────
 
@@ -61,6 +63,32 @@ export function latest_report(database: SqlDatabase, item_id: string): string {
     .orderBy(desc(runs.started_at))
     .get();
   return row?.report ?? "";
+}
+
+// The tool calls a transcript still waits on the user for.
+function permission_requests(transcript: string): PermissionRequest[] {
+  return waiting_permissions(read_transcript(transcript)).map((entry) => ({ request_id: entry.id, tool: entry.tool, input: entry.input, reason: entry.reason }));
+}
+
+const snapshot_columns = { id: runs.id, item_id: runs.item_id, item_title: items.title, stage: runs.stage, state: runs.state, proposals: runs.proposals, report: runs.report, error: runs.error, questions: runs.questions, awaiting: runs.awaiting };
+
+type SnapshotRow = Omit<RunSnapshot, "state" | "summary" | "question"> & { state: string; report: string; questions: string };
+
+function snapshot_of({ report, questions, ...row }: SnapshotRow): RunSnapshot {
+  return { ...row, state: row.state as RunState, summary: report_summary(report), question: (JSON.parse(questions) as Question[])[0]?.question ?? "" };
+}
+
+// One run as a program following it sees it, its transcript read only while an approval waits.
+export function watched_run(database: SqlDatabase, id: string): WatchedRun {
+  const row = drizzle_of(database)
+    .select({ ...snapshot_columns, transcript: sql<string>`CASE WHEN ${runs.awaiting} != '' THEN ${runs.transcript} ELSE '' END` })
+    .from(runs)
+    .innerJoin(items, eq(items.id, runs.item_id))
+    .where(eq(runs.id, id))
+    .get();
+  if (!row) throw new Error(`no run ${id}`);
+  const { transcript, ...rest } = row;
+  return { ...snapshot_of(rest), questions: JSON.parse(rest.questions) as Question[], permissions: transcript ? permission_requests(transcript) : [] };
 }
 
 export function runs_in_state(database: SqlDatabase, state: RunState): Run[] {
@@ -253,13 +281,14 @@ export const runs_feature = define_feature({
       const named = [...new Set(run_ids)];
       const under_way = eq(runs.state, "running");
       return drizzle_of(database)
-        .select({ id: runs.id, item_id: runs.item_id, item_title: items.title, stage: runs.stage, state: runs.state, proposals: runs.proposals, report: runs.report, error: runs.error, questions: runs.questions, awaiting: runs.awaiting })
+        .select(snapshot_columns)
         .from(runs)
         .innerJoin(items, eq(items.id, runs.item_id))
         .where(named.length ? or(under_way, inArray(runs.id, named)) : under_way)
         .all()
-        .map(({ report, questions, ...row }) => ({ ...row, state: row.state as RunState, summary: report_summary(report), question: (JSON.parse(questions) as Question[])[0]?.question ?? "" }));
+        .map(snapshot_of);
     },
+    list_permission_requests: (database: SqlDatabase, run_id: string): PermissionRequest[] => permission_requests(find_run(database, run_id).transcript),
     list_recent_runs: (database: SqlDatabase, limit: number): Run[] => drizzle_of(database).select().from(runs).orderBy(desc(runs.started_at)).limit(limit).all().map(as_run),
     update_run_report: (database: SqlDatabase, id: string, report: string): void => {
       const run = find_run(database, id);

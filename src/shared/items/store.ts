@@ -39,6 +39,13 @@ export const items_feature = define_feature({
       return rows.map(as_item);
     },
     get_item: (database: SqlDatabase, id: string): Item => find_item(database, id),
+    lookup_item: (database: SqlDatabase, repository: string, issue_number: number): Item | null => {
+      const wanted = repository.trim().toLowerCase();
+      const rows = drizzle_of(database).select().from(items).where(eq(items.issue_number, issue_number)).orderBy(desc(items.created_at)).all();
+      const matching = rows.filter((row) => row.repository.toLowerCase() === wanted);
+      const found = matching.find((row) => row.closed_at === null) ?? matching[0];
+      return found ? as_item(found) : null;
+    },
     get_item_github: (database: SqlDatabase, id: string): ItemGitHub => {
       const item = find_item(database, id);
       return { pull_request: read_pull_request(item.pull_request), mirror: read_mirror(item.github) };

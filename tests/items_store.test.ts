@@ -94,6 +94,19 @@ describe("the items store", () => {
     expect(store.get_item(id).status).toEqual({ ...empty_status(), goal: "Lanes.", links: "PR #4" });
   });
 
+  it("looks an item up by its repository and issue, the open one first, and gives null for none", () => {
+    const methods = open_methods();
+    const closed = methods.save_item({ ...item, issue_number: 12 }, "2026-11-01T00:00:00Z");
+    methods.close_item(closed);
+    const open = methods.save_item({ ...item, issue_number: 12 }, "2026-10-01T00:00:00Z");
+    methods.save_item({ ...item, repository: "x-tech-laboratories/X-Libs", issue_number: 12 });
+
+    expect(methods.lookup_item("X-Tech-Laboratories/x-dev", 12)?.id).toBe(open);
+    methods.close_item(open);
+    expect(methods.lookup_item("x-tech-laboratories/X-Dev", 12)?.id).toBe(closed);
+    expect(methods.lookup_item("x-tech-laboratories/X-Dev", 13)).toBeNull();
+  });
+
   it("refuses calls on an item that does not exist", () => {
     const store = open_methods();
     expect(() => store.get_item("missing")).toThrow("no item missing");
