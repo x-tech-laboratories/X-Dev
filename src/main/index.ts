@@ -24,16 +24,14 @@ import { local_mcp_method_names } from "@x-tech-laboratories/x-libs/local_mcp_pr
 
 import { backup_bridge, certificate_bridge, connection_bridge, desktop_bridge, device_bridge, dev_bridge, dev_events, local_mcp_bridge, remote_access_bridge, runner_bridge, stages_bridge } from "../shared/bridge.ts";
 import type { DesktopMethods, DesktopSettings } from "../shared/desktop.ts";
-import { read_pull_request } from "../shared/items/github.ts";
 import { remote_access_method_names } from "../shared/remote_access.ts";
-import { pull_request_snapshots, watch_notices, type RunSnapshot } from "../shared/runs/notices.ts";
-import type { StageList } from "../shared/stages/model.ts";
 import { route_of_link } from "../shared/links.ts";
-import { device_method_names, is_read_only } from "../shared/page_api.ts";
+import { device_method_names } from "../shared/page_api.ts";
 import { runner_method_names } from "../shared/runs/runner.ts";
 import { stages_method_names } from "../shared/stages/model.ts";
 import { method_names } from "../shared/store.ts";
 import type { Item } from "../shared/items/model.ts";
+import { create_daemon_router } from "./daemon_router.ts";
 import { tray_view, type TrayState } from "./tray_menu.ts";
 
 // ── Profile ──────────────────────────────────────────────────────────────────
@@ -81,33 +79,26 @@ watchFile(certificates_file, { interval: 2000 }, trust_certificates);
 const connections = create_connections({ storage: connection_file_storage(join(profile, "connections.json")), offers_local: true, device_name: `X-Dev on ${hostname()}` });
 const link = create_daemon_link({ connections, socket_path });
 
-function is_here(): boolean {
-  return connections.current()?.kind !== "remote";
-}
-
-// Calls that belong to this computer whichever daemon the window uses: its sync, certificates, MCP, own settings and who may connect.
-const local_tables = new Set(["device", "certificates", "local_mcp", "daemon", "remote"]);
-
-// Given by the daemon when this process connects, so the window is not told about its own changes.
-let client_id = "";
-
-// One call, as the page made it, to this computer's daemon or the chosen one; a change also shows in the tray at once.
-async function call(path: string, args: unknown[]): Promise<unknown> {
-  const headers = { "x-client-id": client_id };
-  const result = local_tables.has(path.slice(0, path.indexOf("/"))) ? await call_daemon(socket_path, `/api/${path}`, args, is_here() ? headers : {}) : await link.call(`/api/${path}`, args, headers);
-  if (!is_read_only(path.slice(path.lastIndexOf("/") + 1))) void tray.refresh();
-  return result;
-}
-
-// Every call in a table, passed on under a path of its own.
-function forwarded(names: readonly string[], prefix: string | (() => string)): Record<string, (...args: unknown[]) => Promise<unknown>> {
-  const prefix_now = typeof prefix === "string" ? () => prefix : prefix;
-  return Object.fromEntries(names.map((name) => [name, (...args: unknown[]) => call(`${prefix_now()}/${name}`, args)]));
-}
-
-function get_desktop_settings(): Promise<DesktopSettings> {
-  return call("daemon/get_desktop_settings", []) as Promise<DesktopSettings>;
-}
+// Calls and change events go to this computer's daemon or the chosen one; another daemon chosen reloads every window.
+const router = create_daemon_router({
+  connections,
+  link,
+  call_local: (path, args, headers) => call_daemon(socket_path, path, args, headers),
+  restart_local: ensure_daemon,
+  on_change: () => {
+    dev_events.emit(BrowserWindow.getAllWindows(), "changed", null);
+    void apply_window_settings().catch(() => undefined);
+    void tray.refresh();
+  },
+  on_sync_status: (status) => dev_events.emit(BrowserWindow.getAllWindows(), "sync_status", status),
+  on_switch: () => {
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.reload();
+  },
+  // A change also shows in the tray at once.
+  after_write: () => void tray.refresh(),
+  show_notice: (notice) => void notifier.show({ title: notice.title, body: notice.body, key: notice.key, url: notice.url, icon: "app" }),
+});
+const { call, forwarded, get_desktop_settings, is_here } = router;
 
 // Settings the window itself acts on: the tray and starting at login.
 async function apply_window_settings(): Promise<void> {
@@ -125,65 +116,9 @@ function apply_autostart(settings: DesktopSettings): void {
   );
 }
 
-// Every window hears of the chosen daemon's changes, and this computer's daemon starts again when it stopped.
-let is_quitting = false;
-let stop_following = (): void => {};
-
-function follow_daemon(): void {
-  stop_following = link.follow_events(
-    "/api/events",
-    (event, data) => {
-      if (event === "hello") client_id = data;
-      if (event === "changed") announce_change();
-      if (event === "sync_status") dev_events.emit(BrowserWindow.getAllWindows(), "sync_status", JSON.parse(data));
-    },
-    {
-      // A reconnect may have missed changes, so the windows fetch again.
-      on_connect: announce_change,
-      on_disconnect: () => {
-        if (!is_quitting && is_here()) void ensure_daemon().catch((error: unknown) => console.error(error));
-      },
-    },
-  );
-}
-
-function announce_change(): void {
-  dev_events.emit(BrowserWindow.getAllWindows(), "changed", null);
-  void apply_window_settings().catch(() => undefined);
-  void tray.refresh();
-  void remote_notices?.check().catch(() => undefined);
-}
-
-// Another daemon chosen: every window starts again on it, since what the page offers depends on where it runs.
-connections.subscribe(() => {
-  client_id = "";
-  watch_remote_notices();
-  for (const window of BrowserWindow.getAllWindows()) window.webContents.reload();
-});
-
 // ── Notifications from another computer ──────────────────────────────────────
 
-// This computer's daemon tells of its own runs; for a daemon elsewhere the window tells, by the kinds switched on here.
 const notifier = new Notifier({ app_name: "X-Dev", icons: { app: icon_path }, on_error: (message) => console.error(`x-dev notifications: ${message}`) });
-let remote_notices: ReturnType<typeof watch_notices> | null = null;
-let stage_labels = new Map<string, string>();
-
-function watch_remote_notices(): void {
-  remote_notices = null;
-  if (is_here()) return;
-  remote_notices = watch_notices({
-    read_runs: async (run_ids) => {
-      const stages = (await call("stages/list_stages", []).catch(() => null)) as StageList | null;
-      if (stages) stage_labels = new Map(stages.stages.map((stage) => [stage.id, stage.label]));
-      return (await call("call/list_watched_runs", [run_ids])) as RunSnapshot[];
-    },
-    read_pull_requests: async () => pull_request_snapshots((await call("call/list_items", [false])) as Item[], read_pull_request),
-    stage_label: (stage) => stage_labels.get(stage) ?? stage,
-    is_on: async (kind) => (await get_desktop_settings())[`notify_${kind}`],
-    show: (notice) => void notifier.show({ title: notice.title, body: notice.body, key: notice.key, url: notice.url, icon: "app" }),
-  });
-  void remote_notices.check().catch(() => undefined);
-}
 
 // ── Window ───────────────────────────────────────────────────────────────────
 
@@ -220,7 +155,7 @@ function show_window(route?: string): void {
 
 // Stops the daemon as well, so nothing runs until the app is opened again.
 async function quit_completely(): Promise<void> {
-  is_quitting = true;
+  router.quitting();
   await call("daemon/stop_daemon", []).catch(() => undefined);
   app.quit();
 }
@@ -244,7 +179,7 @@ const tray = create_app_tray({
       open_route: (route) => show_window(route),
       show: () => show_window(),
       quit: () => {
-        is_quitting = true;
+        router.quitting();
         app.quit();
       },
       quit_completely: () => void quit_completely(),
@@ -300,16 +235,14 @@ function start_app(): void {
       return;
     }
     register_bridges();
-    follow_daemon();
-    watch_remote_notices();
+    router.start();
     await apply_window_settings().catch(() => undefined);
     // A link the app was opened with, such as a notification's, opens the window on its page.
     show_window(first_argument(process.argv, route_of_link) ?? undefined);
   });
 
   app.on("will-quit", () => {
-    is_quitting = true;
-    stop_following();
+    router.stop();
     tray.stop();
   });
 

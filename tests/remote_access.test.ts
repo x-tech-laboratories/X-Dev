@@ -1,5 +1,4 @@
 import { mkdtempSync, readFileSync, statSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -12,6 +11,7 @@ import { create_stage_files } from "../src/server/stage_files.ts";
 import { read_remote_access, remote_access_problem } from "../src/shared/remote_access.ts";
 import type { RunnerMethods } from "../src/shared/runs/runner.ts";
 import { open_store } from "../src/shared/store.ts";
+import { free_port } from "./helpers/loopback.ts";
 
 const password = "a long enough password";
 let remote: RemoteAccess | null = null;
@@ -19,16 +19,6 @@ let remote: RemoteAccess | null = null;
 afterEach(async () => {
   await remote?.stop();
 });
-
-// A port nothing listens on, found by asking for any port on the loopback address.
-function free_port(): Promise<number> {
-  return new Promise((resolve) => {
-    const probe = createServer().listen(0, "127.0.0.1", () => {
-      const { port } = probe.address() as { port: number };
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
 function setup() {
   const profile = mkdtempSync(join(tmpdir(), "x-dev-remote-"));
