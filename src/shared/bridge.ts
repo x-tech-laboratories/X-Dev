@@ -8,7 +8,8 @@ import { local_mcp_method_names, type LocalMcpMethods } from "@x-tech-laboratori
 import { define_events } from "@x-tech-laboratories/x-libs/electron/events";
 
 import { desktop_method_names, type DesktopMethods } from "./desktop.ts";
-import { certificates_api_name, desktop_api_name, device_api_name, local_mcp_api_name, device_method_names, events_api_name, dev_api_name, type DeviceMethods, type DevEvents } from "./page_api.ts";
+import { stages_method_names, type StagesMethods } from "./stages/model.ts";
+import { certificates_api_name, desktop_api_name, stages_api_name, device_api_name, local_mcp_api_name, device_method_names, events_api_name, dev_api_name, type DeviceMethods, type DevEvents } from "./page_api.ts";
 import { method_names, type DevMethods } from "./store.ts";
 
 // ── Bridges ──────────────────────────────────────────────────────────────────
@@ -25,5 +26,8 @@ export const local_mcp_bridge = define_bridge<LocalMcpMethods>(local_mcp_api_nam
 
 // The desktop app's own settings and quitting, answered by the main process.
 export const desktop_bridge = define_bridge<DesktopMethods>(desktop_api_name, desktop_method_names);
+
+// The stage files, answered by the daemon.
+export const stages_bridge = define_bridge<StagesMethods>(stages_api_name, stages_method_names);
 
 export const dev_events = define_events<DevEvents>(events_api_name);

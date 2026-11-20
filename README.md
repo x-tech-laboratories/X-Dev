@@ -13,6 +13,9 @@ What it does so far:
 
 - **Items:** each feature or bug fix in one GitHub repository, with its issue, the stage it is at, and a status sheet
   that every stage reads and keeps current. Items are added, edited, closed and reopened on the Items page.
+- **Stages:** the steps every item goes through, from Triage to Close, each a Claude Code agent file with its own
+  model, effort, next stage, gates, tools and prompt. **Settings → Pipeline → Stages** lists them in order, edits each
+  in a dialog, moves and deletes them, and adds the default stages where they are missing.
 
 ## Running it
 
@@ -37,10 +40,23 @@ The server reads a JSON file named by `X_DEV_CONFIG`; `config.example.json` is t
 | ---------------- | --------------------------------------------------------- |
 | `database`       | the SQLite file, made if missing                          |
 | `backups_folder` | where the server's backups are kept                       |
+| `stages_folder`  | the stage files, `~/.claude/agents` in the server's home unless set |
 
 The address and port come from `X_DEV_HOST` and `X_DEV_PORT` (or `--host` and `--port`), 127.0.0.1:7760 unless
 set. The admins are read from the accounts file `X_DEV_PASSWORD_HASH_FILE` names, one `name:hash` line each;
 `npm run hash-password -- <name> <file>` adds one or changes their password. `x-dev --help` lists every option.
+
+## Stages
+
+A stage is a file named `stage-<id>.md`, such as `stage-plan.md`, in Claude Code's agents folder, `~/.claude/agents`, so
+Claude Code in a terminal and X-Dev run the same stages. Its frontmatter holds Claude Code's own keys (`name`,
+`description`, `model`, `effort`, `tools`, `disallowedTools`) and X-Dev's (`x-dev-label`, `x-dev-order`, `x-dev-next`,
+`x-dev-gates`, `x-dev-paths`); the rest of the file is the prompt. X-Dev keeps every other key and comment when it
+writes a file back, and shows a change made in an editor at once. A file it cannot read is listed with why, and never
+overwritten.
+
+The desktop app reads the stages through its daemon; the web server reads `stages_folder`, and only an admin may change
+them. A dev run (`npm run dev`, `npm run dev:server`) keeps its own stages under `dev-data/`.
 
 ## The desktop app in the background
 

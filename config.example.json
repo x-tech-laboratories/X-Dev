@@ -1,4 +1,5 @@
 {
   "database": "dev-data/dev.db",
-  "backups_folder": "dev-data/backups"
+  "backups_folder": "dev-data/backups",
+  "stages_folder": "dev-data/stages"
 }

@@ -18,6 +18,8 @@ import { register_sync_routes } from "@x-tech-laboratories/x-libs/server/sync_ro
 import { register_web_folder } from "@x-tech-laboratories/x-libs/server/web_folder";
 import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 
+import type { StagesMethods } from "../shared/stages/model.ts";
+
 import { dev_bridge } from "../shared/bridge.ts";
 import { mcp_instructions as instructions, without_secrets } from "../shared/mcp.ts";
 import { bind_methods, dev_api, is_read_only, sync_engine } from "../shared/store.ts";
@@ -32,6 +34,10 @@ export interface AppOptions {
   web_folder: string;
   // The database's backups, which an admin manages from the page; one is taken before a device's data replaces it.
   backups: BackupMethods;
+  // The stage files the server's agents run, which only an admin may change.
+  stages: StagesMethods;
+  // The pages' event stream, given when something outside the server, such as a stage file, can change too.
+  changes?: EventStream;
 }
 
 // ── Other programs ───────────────────────────────────────────────────────────
@@ -45,10 +51,10 @@ export async function build_app(options: AppOptions): Promise<FastifyInstance> {
   register_lenient_json_body(app);
   register_error_replies(app);
   const accounts = new AccountStore({ database: options.database, app_name: "X-Dev", declared: options.declared, token_prefix: "xf" });
-  // Backups reach the whole database, the accounts included, so only an admin may manage them.
-  await register_accounts(app, { accounts, cookie_name: "x_dev_session", read_only_paths: ["/api/mcp"], needed: (_method, path) => (path.startsWith("/api/backup/") ? { role: accounts.top_role } : "any") });
+  // Backups reach the whole database, the accounts included, and stages tell agents what to run, so only an admin may manage them.
+  await register_accounts(app, { accounts, cookie_name: "x_dev_session", read_only_paths: ["/api/mcp"], needed: (_method, path) => ((path.startsWith("/api/backup/") || path.startsWith("/api/stages/")) ? { role: accounts.top_role } : "any") });
 
-  const changes = new EventStream();
+  const changes = options.changes ?? new EventStream();
   const database = () => options.database;
 
   await app.register(
@@ -76,6 +82,8 @@ export async function build_app(options: AppOptions): Promise<FastifyInstance> {
 
       // Backup calls arrive as POST /api/backup/<method> with the arguments as a JSON list.
       register_call_table(api, "/backup", options.backups, { is_read_only });
+      // A stage file changed by an admin, or in another program, reaches every page.
+      register_call_table(api, "/stages", options.stages, { is_read_only, on_change: (client_id) => changes.announce_change(client_id) });
       register_sync_routes(api, {
         engine: sync_engine,
         database,

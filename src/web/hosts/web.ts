@@ -8,6 +8,7 @@ import type { Client } from "@x-tech-laboratories/x-libs/electron/bridge";
 import { LoginNeeded } from "@x-tech-laboratories/x-libs/web/states";
 
 import type { PageApi } from "../../shared/page_api.ts";
+import type { StagesMethods } from "../../shared/stages/model.ts";
 import type { DevMethods } from "../../shared/store.ts";
 
 // ── Server calls ─────────────────────────────────────────────────────────────
@@ -15,6 +16,7 @@ import type { DevMethods } from "../../shared/store.ts";
 // Relative, so a server behind a proxy under a folder keeps it.
 const call_path = "api/call/";
 const backup_path = "api/backup/";
+const stages_path = "api/stages/";
 const events_path = "api/events";
 const client_id_header = "x-client-id";
 
@@ -73,6 +75,13 @@ function server_backups(): BackupClient {
   });
 }
 
+// The server's stage files, which only an admin may change.
+function server_stages(): Client<StagesMethods> {
+  return new Proxy({} as Client<StagesMethods>, {
+    get: (_target, name) => (typeof name === "string" ? (...args: unknown[]) => call_server(name, args, stages_path) : undefined),
+  });
+}
+
 export function web_api(): PageApi {
   const listeners = new Set<() => void>();
   follow_changes(() => {
@@ -82,6 +91,7 @@ export function web_api(): PageApi {
     host: "web",
     calls: server_calls(),
     backups: server_backups(),
+    stages: server_stages(),
     device: null,
     on_change: (listener) => {
       listeners.add(listener);
