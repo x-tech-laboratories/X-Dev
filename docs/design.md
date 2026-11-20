@@ -264,15 +264,17 @@ Other backends, such as OpenCode, can be added as plugins later.
 - **Board**: a column per stage and a card per item in its stage's column; the card merges the item
   and that stage's run. It names the repository and issue and the item, then the run's state, the
   first line of its report or what failed, its model, changed lines, cost and age, its gates, a
-  waiting run's question with its choices, the pull request and its checks, and a dot per stage for
-  the way the item came. It holds Run with a model picker, and a menu to open the item, send it back
-  to an earlier stage and discard its last run. Clicking a card opens the item at that run; dragging
-  it to an earlier column sends it back, and dragging it forward is refused, since stages move on
-  only by a run's report. Cards filter by repository and words, can be grouped into a lane per
-  repository, and finished items show in a Done column when asked; on a phone the columns stack. The
-  Inbox above holds the proposals waiting for the user. The board is the page X-Dev opens on. Its
-  frame is drawn in X-Dev for now and is to move onto X-Libs' board widget; the card
-  (`src/web/board/ItemCard.tsx`) knows nothing of the frame.
+  waiting run's question with its choices, the pull request and its checks, and, once it has runs, a
+  dot per stage for the way the item came. It holds Run with a model picker, and a menu to open the
+  item, send it back to an earlier stage and discard its last run. Clicking a card, or Enter on it,
+  opens the item at that run; dragging it to an earlier column, or Alt and Left, sends it back after
+  a confirm, and no later column takes a dragged card, since stages move on only by a run's report.
+  Cards filter by repository and words, can be grouped into a lane per repository, and finished
+  items show in a Done column when asked; on a phone the columns stack. The Inbox above holds the
+  proposals waiting for the user, one line each, and is just its heading when empty. The board is
+  the page X-Dev opens on and fills the window, scrolling inside itself with its column heads in
+  view. X-Dev draws it with X-Libs' `Board` widget; the card (`src/web/board/ItemCard.tsx`) draws
+  only what goes inside the widget's card.
 - **New item**: two ways in, side by side. **Describe it** takes free text, such as a pasted bug report
   or a few lines of an idea, and an agent fills in the form from it: title, feature or bug, the
   repository it guesses from the text and the repositories X-Dev knows, a body for the issue, and,
@@ -319,14 +321,11 @@ reports sync; worktrees and stage files stay on the machine that runs the agents
 | Lane grouping and filters | `grouping` (`group_items`), `filter`, `FilterStack` |
 | Reports | `web/react/markdown` |
 | Runs table, cost charts | `DataTable`, `web/react/charts` |
-| Pages and widgets | `Shell`, layout, dialogs, `PageView`, `SettingsPage`, toasts, menus, `Icon` |
+| Pages and widgets | `Shell`, layout, dialogs, `PageView`, `SettingsPage`, toasts, menus, `Icon`, `Board` |
 | Plugins | `plugins`, `web/react/plugins` |
 
 Missing from X-Libs, to be built there rather than in X-Dev:
 
-- A board widget with swimlanes: columns, optional rows (lanes) each with a head, and a cell per lane
-  and column holding the app's cards, worked by keyboard and drawn as a lane list on phones. X-Tasks'
-  `BoardView` is the starting point, moved into X-Libs with lanes added and X-Tasks switched onto it.
 - A diff view: a branch's changes by file, with added and removed lines. X-Dev's is built app-local in
   `src/web/diff/` and `src/shared/diff/`, on parse-diff, with nothing of X-Dev in its props, ready to move.
 - A GitHub client on Octokit: issues, labels, comments, pull requests and checks, for any app.

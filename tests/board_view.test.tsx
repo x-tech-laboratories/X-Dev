@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Client } from "@x-tech-laboratories/x-libs/electron/bridge";
@@ -16,9 +16,9 @@ import { runner_setting_defaults, type RunnerMethods } from "../src/shared/runs/
 import { insert_run, update_run } from "../src/shared/runs/store.ts";
 import type { StagesMethods } from "../src/shared/stages/model.ts";
 import { bind_methods, open_store, type DevMethods } from "../src/shared/store.ts";
-import { set_page_api } from "../src/web/api.ts";
+import { page, set_page_api } from "../src/web/api.ts";
 import { App } from "../src/web/App.tsx";
-import { drop_move } from "../src/web/board/index.tsx";
+import { is_send_back } from "../src/web/board/index.tsx";
 
 function as_client(methods: object): unknown {
   return Object.fromEntries(Object.entries(methods as Record<string, (...args: unknown[]) => unknown>).map(([name, call]) => [name, async (...args: unknown[]) => call(...args)]));
@@ -60,6 +60,26 @@ async function card(title: string) {
   return screen.findByRole("article", { name: title });
 }
 
+// The board card holding an item's card, which takes focus, opens and drags.
+function board_card(title: string): HTMLElement {
+  return screen.getByRole("article", { name: title }).closest(".board-card") as HTMLElement;
+}
+
+// The column head over the cell a card sits in.
+function column_of(title: string): string {
+  const cell = board_card(title).closest("[role=gridcell]")!;
+  const cells = [...cell.parentElement!.querySelectorAll(":scope > [role=gridcell]")];
+  const heads = screen.getAllByRole("columnheader").filter((head) => head.classList.contains("board-column-head"));
+  return heads[cells.indexOf(cell)]!.querySelector(".board-column-label")!.textContent!;
+}
+
+// The board's cell under a column head, in its only row of cards.
+function cell_under(label: string): HTMLElement {
+  const heads = screen.getAllByRole("columnheader").filter((head) => head.classList.contains("board-column-head"));
+  const index = heads.findIndex((head) => head.querySelector(".board-column-label")!.textContent === label);
+  return screen.getAllByRole("gridcell")[index]!;
+}
+
 beforeEach(() => {
   window.localStorage.clear();
   window.location.hash = "";
@@ -82,11 +102,12 @@ describe("the board", () => {
     store.save_item({ title: "Board widget", repository: "x-tech-laboratories/X-Libs", stage: "triage" });
     render(<App />);
 
-    const plan = await screen.findByRole("region", { name: "Plan" });
-    expect(within(plan).getByRole("article", { name: "Swimlanes" })).toBeTruthy();
-    expect(within(plan).getByText("X-Dev #4")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Triage" })).getByRole("article", { name: "Board widget" })).toBeTruthy();
-    expect(screen.getAllByRole("region").map((region) => region.getAttribute("aria-label"))).toEqual(["Triage", "Plan", "Specify", "Implement", "Verify", "Extract", "Docs", "Review", "Release", "Deploy", "Close"]);
+    expect(await screen.findByRole("grid", { name: "Board" })).toBeTruthy();
+    expect(column_of("Swimlanes")).toBe("Plan");
+    expect(within(await card("Swimlanes")).getByText("X-Dev #4")).toBeTruthy();
+    expect(column_of("Board widget")).toBe("Triage");
+    expect(screen.getAllByRole("columnheader").map((head) => head.querySelector(".board-column-label")?.textContent)).toEqual(["Triage", "Plan", "Specify", "Implement", "Verify", "Extract", "Docs", "Review", "Release", "Deploy", "Close"]);
+    expect(screen.getAllByRole("columnheader")[1]!.textContent).toBe("Plan1");
   });
 
   it("merges the card with its stage's latest run: state, summary, model, changed lines, cost and gates", async () => {
@@ -168,12 +189,54 @@ describe("the board", () => {
 
     const swimlanes = await card("Swimlanes");
     expect(within(swimlanes).getByText("A gate failed: tests-pass.")).toBeTruthy();
-    expect(within(swimlanes).getByRole("link", { name: "Swimlanes" }).getAttribute("href")).toBe(`#/items/${id}/${run_id}`);
+    expect(board_card("Swimlanes").classList.contains("tone-edge-bad")).toBe(true);
 
     fireEvent.click(within(swimlanes).getByRole("button", { name: "More for Swimlanes" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Discard Last Run" }));
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Discard" }));
     await waitFor(() => expect(runner.discard_run).toHaveBeenCalledWith(run_id));
+    expect(window.location.hash).toBe("");
+
+    fireEvent.click(within(swimlanes).getByText("Swimlanes"));
+    expect(window.location.hash).toBe(`#/items/${id}/${run_id}`);
+  });
+
+  it("opens a card with Enter and sends it back a column with Alt and Left after a confirm", async () => {
+    const { store } = fake_page();
+    const id = store.save_item({ title: "Swimlanes", repository: "x-tech-laboratories/X-Dev", stage: "implement" });
+    render(<App />);
+    await card("Swimlanes");
+
+    fireEvent.keyDown(board_card("Swimlanes"), { key: "ArrowRight", altKey: true });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.keyDown(board_card("Swimlanes"), { key: "ArrowLeft", altKey: true });
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/back to Specify\?/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send Back" }));
+    await waitFor(() => expect(store.get_item(id).stage).toBe("specify"));
+
+    fireEvent.keyDown(board_card("Swimlanes"), { key: "Enter" });
+    expect(window.location.hash).toBe(`#/items/${id}`);
+  });
+
+  it("sends a card dragged onto an earlier column back there after a confirm, and offers no later column", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { store } = fake_page();
+      const id = store.save_item({ title: "Swimlanes", repository: "x-tech-laboratories/X-Dev", stage: "implement" });
+      render(<App />);
+      await card("Swimlanes");
+
+      fireEvent.dragStart(board_card("Swimlanes"));
+      await act(async () => void vi.runOnlyPendingTimers());
+      expect(fireEvent.dragOver(cell_under("Review"))).toBe(true);
+      expect(fireEvent.dragOver(cell_under("Plan"))).toBe(false);
+      fireEvent.drop(cell_under("Plan"));
+      fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Send Back" }));
+      await waitFor(() => expect(store.get_item(id).stage).toBe("plan"));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sends an item back to an earlier stage from its menu after a confirm", async () => {
@@ -188,13 +251,14 @@ describe("the board", () => {
     await waitFor(() => expect(store.get_item(id).stage).toBe("plan"));
   });
 
-  it("takes a card dropped on an earlier column back there, and refuses one dropped further on", () => {
+  it("sends a card back only to an earlier column, Done counting as the last", () => {
     const stages = ["triage", "plan", "implement"];
-    expect(drop_move(stages, "implement", "plan")).toBe("back");
-    expect(drop_move(stages, "plan", "implement")).toBe("forward");
-    expect(drop_move(stages, "plan", "plan")).toBe("none");
-    expect(drop_move(stages, "done", "triage")).toBe("back");
-    expect(drop_move(stages, "plan", "done")).toBe("forward");
+    expect(is_send_back(stages, "implement", "plan")).toBe(true);
+    expect(is_send_back(stages, "plan", "implement")).toBe(false);
+    expect(is_send_back(stages, "plan", "plan")).toBe(false);
+    expect(is_send_back(stages, "done", "triage")).toBe(true);
+    expect(is_send_back(stages, "plan", "done")).toBe(false);
+    expect(is_send_back(stages, "plan", "gone")).toBe(false);
   });
 
   it("filters cards by repository and words, shows finished items in Done only when asked, and groups by repository", async () => {
@@ -211,11 +275,54 @@ describe("the board", () => {
     expect(screen.getByRole("article", { name: "Board widget" })).toBeTruthy();
     fireEvent.change(screen.getByRole("combobox", { name: "Repository" }), { target: { value: "" } });
     fireEvent.click(screen.getByRole("switch", { name: "Show finished items" }));
-    expect(within(await screen.findByRole("region", { name: "Done" })).getByRole("article", { name: "Shipped thing" })).toBeTruthy();
+    expect(await card("Shipped thing")).toBeTruthy();
+    expect(column_of("Shipped thing")).toBe("Done");
+    expect(within(await card("Shipped thing")).queryByRole("list", { name: "Stages" })).toBeNull();
 
     fireEvent.click(screen.getByRole("switch", { name: "Group by repository" }));
-    expect(within(await screen.findByRole("region", { name: "Triage, x-tech-laboratories/X-Libs" })).getByRole("article", { name: "Board widget" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "x-tech-laboratories/X-Dev" })).toBeTruthy();
+    const libs_lane = await screen.findByRole("rowheader", { name: /^X-Libs/ });
+    expect(within(libs_lane.parentElement!).getByRole("article", { name: "Board widget" })).toBeTruthy();
+    expect(within(screen.getByRole("rowheader", { name: /^X-Dev/ }).parentElement!).queryByRole("article", { name: "Board widget" })).toBeNull();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search items" }), { target: { value: "nothing like it" } });
+    expect(await screen.findByText("Nothing matches the filters.")).toBeTruthy();
+  });
+
+  it("opens the report of the card's run in a dialog from its menu, clicks in it staying on the board", async () => {
+    const { database, store } = fake_page();
+    const id = store.save_item({ title: "Swimlanes", repository: "x-tech-laboratories/X-Dev", stage: "implement" });
+    const run_id = add_run(database, id, "implement", { state: "failed", error: "Out of turns.", cost_usd: 0.5, input_tokens: 1200, output_tokens: 300, report: "## Implement handoff\n**Done:** - Half the lanes" });
+    render(<App />);
+
+    fireEvent.click(within(await card("Swimlanes")).getByRole("button", { name: "More for Swimlanes" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Open Report" }));
+    const dialog = await screen.findByRole("dialog", { name: /Implement Run/ });
+    const report = (await within(dialog).findAllByText(/Half the lanes/)).at(-1)!;
+    expect(within(dialog).getByRole("alert").textContent).toBe("Out of turns.");
+    expect(within(dialog).getByText("1,200 read, 300 written")).toBeTruthy();
+    fireEvent.click(report);
+    expect(window.location.hash).toBe("");
+    expect(within(dialog).getByRole("link", { name: "Open the Item at This Run" }).getAttribute("href")).toBe(`#/items/${id}/${run_id}`);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("keeps the inbox to its heading while no proposals wait", async () => {
+    const { store } = fake_page();
+    store.save_item({ title: "Swimlanes", repository: "x-tech-laboratories/X-Dev", stage: "plan" });
+    render(<App />);
+
+    const inbox = (await screen.findByRole("heading", { name: "Inbox 0" })).closest("section")!;
+    expect(within(inbox).queryByRole("list")).toBeNull();
+  });
+
+  it("shows a failed load with Retry in place of the board", async () => {
+    fake_page();
+    set_page_api({ ...page(), stages: { list_stages: async () => { throw new Error("stage files unreadable"); } } as unknown as Client<StagesMethods> });
+    render(<App />);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("stage files unreadable");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 
   it("shows the item's pull request and how its checks stand", async () => {

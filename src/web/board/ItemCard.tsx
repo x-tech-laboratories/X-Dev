@@ -1,11 +1,11 @@
 // One item as a card on the board, merged with the latest run of the stage it is at: its repository and issue, title,
 // that run's state, summary, model, changed lines, cost, age and gates, a waiting run's question, a dot per stage for
-// the way it came, Run with a model picker, and a menu to open it, send it back or discard its last run. It knows
-// nothing of the board around it.
+// the way it came once it has runs, Run with a model picker, and a menu to open it, send it back or discard its last
+// run. It draws only what goes inside the board's card; the board opens it on a click.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
-import { useState, type MouseEvent } from "react";
+import { useState } from "react";
 import { Badge, StatusPill, type Tone } from "@x-tech-laboratories/x-libs/web/react/badges";
 import { confirm_dialog, Dialog } from "@x-tech-laboratories/x-libs/web/react/dialog";
 import { FormRow } from "@x-tech-laboratories/x-libs/web/react/layout";
@@ -166,7 +166,9 @@ const path_tones: Record<PathMark, Tone> = { done: "good", failed: "bad", waitin
 
 const path_words: Record<PathMark, string> = { done: "done", failed: "failed", waiting: "waiting for answers", running: "running", stopped: "stopped", discarded: "discarded", skipped: "skipped", current: "here, not run yet", ahead: "not reached" };
 
+// An item with no runs yet has no way to show, so it draws no strip.
 function PathStrip({ item, stages, runs }: { item: Item; stages: Stage[]; runs: StageRun[] }) {
+  if (runs.length === 0) return null;
   const marks = path_marks(
     stages.map((stage) => stage.id),
     item.stage,
@@ -206,15 +208,32 @@ function money(amount: number): string {
   return `$${amount.toFixed(2)}`;
 }
 
-// Clicks on the card's own buttons and links are theirs, not the card's.
-function is_inner_control(event: MouseEvent<HTMLElement>): boolean {
-  return (event.target as HTMLElement).closest("button, a, input, textarea, select, [role=menu], dialog") !== null;
+// Clicks on the card's own buttons, links, menus and dialogs are theirs, not the card's.
+export function is_inner_control(target: HTMLElement): boolean {
+  return target.closest("button, a, input, textarea, select, label, [role=menu], [role=menuitem], dialog") !== null;
+}
+
+// The run of the stage the item is at, which its card shows.
+function stage_run(stage: Stage | undefined, runs: StageRun[]): StageRun | undefined {
+  return stage ? runs.find((each) => each.stage === stage.id) : undefined;
+}
+
+// Where the card opens: the item's page at the run it shows.
+export function item_href(item: Item, stage: Stage | undefined, runs: StageRun[]): string {
+  const run = stage_run(stage, runs);
+  return `#/items/${encodeURIComponent(item.id)}${run ? `/${encodeURIComponent(run.run_id)}` : ""}`;
+}
+
+// The edge a card takes for a run that failed or waits for answers.
+export function card_tone(stage: Stage | undefined, runs: StageRun[]): string | undefined {
+  const state = stage_run(stage, runs)?.state;
+  return state === "failed" ? "tone-edge-bad" : state === "waiting" ? "tone-edge-warn" : undefined;
 }
 
 export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: ItemCardProps) {
   const { runner } = page();
   const [dialog, set_dialog] = useState<"report" | "model" | null>(null);
-  const run = stage ? runs.find((each) => each.stage === stage.id) : undefined;
+  const run = stage_run(stage, runs);
   const latest = runs.reduce<StageRun | undefined>((newest, each) => (!newest || each.started_at > newest.started_at ? each : newest), undefined);
   const busy = run?.state === "running" || run?.state === "waiting";
   const can_start = Boolean(runner && stage) && can_run && !item.closed_at && item.stage !== proposed && item.stage !== done && !busy;
@@ -224,7 +243,7 @@ export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: I
   const held_by_gates = run?.gates.some((mark) => mark.outcome === "failed" && !mark.passed_over) ?? false;
   const at = stages.findIndex((each) => each.id === item.stage);
   const earlier = item.stage === done ? stages : stages.slice(0, Math.max(0, at));
-  const href = `#/items/${encodeURIComponent(item.id)}${run ? `/${encodeURIComponent(run.run_id)}` : ""}`;
+  const href = item_href(item, stage, runs);
   const repository_name = item.repository.split("/")[1] ?? item.repository;
   const pull_request = read_pull_request(item.pull_request);
 
@@ -249,13 +268,7 @@ export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: I
   ];
 
   return (
-    <article
-      className={cx("card item-card", run?.state === "failed" && "tone-edge-bad", run?.state === "waiting" && "tone-edge-warn")}
-      aria-label={item.title}
-      onClick={(event) => {
-        if (!is_inner_control(event)) window.location.hash = href.slice(1);
-      }}
-    >
+    <article className="item-card" aria-label={item.title}>
       <div className="card-top small muted">
         <span>
           {repository_name}
@@ -263,9 +276,7 @@ export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: I
         </span>
         <MenuButton label={`More for ${item.title}`} items={menu} />
       </div>
-      <a href={href} className="card-title">
-        {item.title}
-      </a>
+      <div className="board-card-title">{item.title}</div>
       {run ? (
         <>
           <div className="card-run">

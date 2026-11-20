@@ -110,11 +110,11 @@ the checks change, and moves on once they pass.
 
 `src/web/board/index.tsx` draws the board from four reads: the open items, `list_stage_runs` (the latest run of each
 stage on each item, with a line from its report through `report_summary`, its cost, gates and questions), the stage
-files, and the runner's `list_run_changes` for the lines each finished run changed. It is one CSS grid of fixed-width
-stage columns, a lane per repository when grouped, that scrolls sideways inside itself and stacks on a phone. Each item
-is an `ItemCard` (`src/web/board/ItemCard.tsx`) in the column of its stage, which takes the item, the stages and its
-runs and knows nothing of the grid, so the frame can move onto X-Libs' board widget. Dropping a card on an earlier
-column calls `send_item_back`.
+files, and the runner's `list_run_changes` for the lines each finished run changed. It hands them to X-Libs' `Board`:
+a column per stage, a lane per repository when grouped, and each item an `ItemCard` (`src/web/board/ItemCard.tsx`) in
+the column of its stage, which takes the item, the stages and its runs and draws only the inside of the widget's card.
+`can_move` allows only earlier columns (`is_send_back`), and `on_move` asks before calling `send_item_back`. The board
+page is a `contained` feature, so the Shell keeps the window still and the board scrolls inside the main pane.
 
 ## Runs page and diffs
 

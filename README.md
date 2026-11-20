@@ -11,14 +11,16 @@ keep their own copy of the data, work offline, and sync with the server whenever
 
 What it does so far:
 
-- **Board:** the page X-Dev opens on, a kanban board with a column for each stage and a card for each open item in the
+- **Board:** the page X-Dev opens on, a kanban board on X-Libs' `Board` with a column for each stage and a card for each open item in the
   column of the stage it is at. The card shows the latest run of that stage: its state, the first line of its report
   or what failed, its model, the lines it changed, its cost, its age and its gates, a waiting run's question with its
-  choices, the item's pull request and checks, and a dot for each stage the item went through. Run starts the stage, on
+  choices, the item's pull request and checks, and, once it has runs, a dot for each stage the item went through. Clicking a card or pressing Enter on it opens the
+  item. Run starts the stage, on
   the stage's model or one picked for that run; the card's menu opens the item, sends it back to an earlier stage and
-  discards its last run. Dragging a card to an earlier column sends the item back there. The inbox of proposals sits
-  above; cards filter by repository and words, group into a lane per repository, and finished items show in a Done
-  column when asked. On a phone the columns stack into a list of stages.
+  discards its last run. Dragging a card to an earlier column, or Alt and Left on it, sends the item back there after a
+  confirm. The board fills the window under its toolbar and the inbox of proposals, scrolling inside itself with the
+  column heads in view; cards filter by repository and words, group into a lane per repository, and finished items
+  show in a Done column when asked. On a phone the columns stack into a list of stages.
 - **Items:** each feature or bug fix in one GitHub repository, with its issue, the stage it is at, and a status sheet
   that every stage reads and keeps current. Items are added, edited, closed and reopened on the Items page.
 - **Stages:** the steps every item goes through, from Triage to Close, each a Claude Code agent file with its own

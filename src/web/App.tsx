@@ -92,6 +92,7 @@ function Pages({ me, on_sign_out }: { me: Me | null; on_sign_out?: () => void })
       user_href="#/account"
       on_logout={on_sign_out}
       settings={{ href: "#/settings", active: section === "settings" }}
+      contained={feature?.contained ?? false}
     >
       <Fragment key={view_key}>{view()}</Fragment>
     </Shell>
