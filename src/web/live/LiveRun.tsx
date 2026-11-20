@@ -94,7 +94,12 @@ function ModeSwitch({ run_id, mode }: { run_id: string; mode: RunMode | "" }) {
   const { runner } = page();
   const offered = offered_modes(mode);
   const options: [RunMode | "", string][] = [...(mode ? [] : [["", "Another mode"] as [RunMode | "", string]]), ...offered.map((each): [RunMode, string] => [each, run_mode_labels[each]])];
-  return <Select<RunMode | ""> label="Permission mode" bare options={options} value={mode} on_change={(next) => void (next && succeeds(() => runner!.set_run_mode(run_id, next)))} />;
+  // Its own box keeps the select its own width rather than the row's.
+  return (
+    <span>
+      <Select<RunMode | ""> label="Permission mode" bare options={options} value={mode} on_change={(next) => void (next && succeeds(() => runner!.set_run_mode(run_id, next)))} />
+    </span>
+  );
 }
 
 // ── View ─────────────────────────────────────────────────────────────────────
