@@ -52,6 +52,10 @@ export async function read_changes(worktree: string, base: string): Promise<Chan
     else if (line.startsWith("@@")) next_line = Number(/\+(\d+)/.exec(line)?.[1] ?? 0);
     else if (line.startsWith("+") && current) current.added.push({ line: next_line++, text: line.slice(1) });
   }
+  for (const file of files.values()) {
+    const text = file.status === "deleted" ? null : read_current(worktree, file.path);
+    if (text !== null) file.first_line = text.split("\n", 1)[0];
+  }
   for (const path of (await git(["ls-files", "--others", "--exclude-standard"], worktree)).split("\n").filter(Boolean)) {
     const text = readFileSync(join(worktree, path), "utf8");
     files.set(path, { path, status: "added", added: text.split("\n").map((line, index) => ({ line: index + 1, text: line })) });

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { create_run_mcp, type RunMcp } from "../src/server/run_mcp.ts";
-import { create_runner, draft_of_reply, match_repository, type Runner } from "../src/server/runner.ts";
+import { checkout_names, checkout_of_reply, create_runner, draft_of_reply, find_checkout, match_repository, search_roots, type Runner } from "../src/server/runner.ts";
 import { create_stage_files } from "../src/server/stage_files.ts";
 import { bind_methods, open_store } from "../src/shared/store.ts";
 
@@ -176,11 +176,21 @@ describe("the runner", () => {
     expect(scope).toEqual({ gate: "scope", outcome: "failed", findings: ["made-by-run.txt is outside what this stage may change (tests/**)"] });
   });
 
+  it("adds a checkout by its folder, reading owner/name from its origin, and refuses one without", async () => {
+    const { runner, checkout } = await setup();
+    execFileSync("git", ["remote", "add", "origin", "git@github.com:x-tech-laboratories/X-Libs.git"], { cwd: checkout });
+
+    expect(await runner.methods.add_repository(checkout)).toBe("x-tech-laboratories/X-Libs");
+    expect(runner.methods.get_runner().settings.repositories["x-tech-laboratories/X-Libs"]).toBe(checkout);
+    await expect(runner.methods.add_repository(make_checkout())).rejects.toThrow("has no origin remote naming its repository");
+    await expect(runner.methods.add_repository(tmpdir())).rejects.toThrow("is not a git checkout");
+  });
+
   it("says where to add a repository it does not know", async () => {
     const { store, runner } = await setup();
     const id = store.save_item({ title: "Elsewhere", repository: "x-tech-laboratories/X-Libs", stage: "plan" });
 
-    await expect(runner.methods.start_run(id, {})).rejects.toThrow("add it under Settings → Pipeline → Repositories");
+    await expect(runner.methods.start_run(id, {})).rejects.toThrow("add its checkout on the Repositories page");
   });
 
   it("marks runs a stopped daemon left running as failed", async () => {
@@ -213,6 +223,29 @@ describe("linking an item's issue", () => {
     expect(await runner.methods.link_issue(id)).toEqual({ number: 5, opened: false });
     expect(store.get_item(id).issue_number).toBe(5);
     expect(await runner.methods.link_issue(numbered)).toEqual({ number: 9, opened: false });
+  });
+});
+
+describe("finding a repository's checkout", () => {
+  it("looks a few levels under the roots for a checkout whose origin names it", async () => {
+    const projects = mkdtempSync(join(tmpdir(), "x-dev-projects-"));
+    mkdirSync(join(projects, "Org"));
+    const libs = make_checkout();
+    const target = join(projects, "Org", "X-Libs");
+    execFileSync("git", ["clone", "-q", libs, target]);
+    execFileSync("git", ["remote", "set-url", "origin", "https://github.com/x-tech-laboratories/X-Libs.git"], { cwd: target });
+
+    expect(await checkout_names(target, "X-TECH-LABORATORIES/x-libs")).toBe(true);
+    expect(await checkout_names(target, "x-tech-laboratories/X-Dev")).toBe(false);
+    expect(await find_checkout("x-tech-laboratories/X-Libs", [projects])).toBe(target);
+    expect(await find_checkout("x-tech-laboratories/X-Nix", [projects])).toBeNull();
+  });
+
+  it("starts beside the known checkouts, else at home, and reads the path an agent gave", () => {
+    expect(search_roots(["/p/Org/X-Dev", "/p/Org/X-Libs", "/q/Other"])).toEqual(["/p/Org", "/q"]);
+    expect(search_roots([])).toHaveLength(1);
+    expect(checkout_of_reply({ result: '{"title": "x", "checkout": " /p/Org/X-Libs "}' })).toBe("/p/Org/X-Libs");
+    expect(checkout_of_reply({ result: "no json" })).toBe("");
   });
 });
 

@@ -102,6 +102,11 @@ export function check_item(input: ItemInput): CheckedItem {
   return { id: input.id, title, kind, repository, issue_number, body: input.body?.trim() ?? "", stage };
 }
 
+// A repository's owner/name from its git remote's address, over ssh or https, such as x-tech-laboratories/X-Dev.
+export function repository_of_remote(url: string): string {
+  return /[:/]([^/:]+\/[^/]+?)(?:\.git)?\/?$/.exec(url.trim())?.[1] ?? "";
+}
+
 // The item's GitHub issue page, or null before it has one.
 export function issue_link(item: Pick<Item, "repository" | "issue_number">): string | null {
   return item.issue_number === null ? null : `https://github.com/${item.repository}/issues/${item.issue_number}`;

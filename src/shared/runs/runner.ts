@@ -57,6 +57,8 @@ export interface RunnerMethods {
   get_runner: () => RunnerStatus;
   set_runner_setting: <Key extends keyof Omit<RunnerSettings, "repositories">>(key: Key, value: RunnerSettings[Key]) => void;
   set_repository: (repository: string, folder: string) => void;
+  // Adds a checkout by its folder, reading its owner/name from its origin remote, and gives the name back.
+  add_repository: (folder: string) => Promise<string>;
   remove_repository: (repository: string) => void;
   // Starts a stage run in the background and gives back its id.
   start_run: (item_id: string, options: StartOptions) => Promise<string>;
@@ -64,9 +66,29 @@ export interface RunnerMethods {
   answer_run: (run_id: string, answers: string) => void;
   discard_run: (run_id: string) => Promise<void>;
   // A draft item from free text, filled in by an agent for the user to check; nothing is saved.
-  describe_item: (text: string) => Promise<ItemInput>;
+  describe_item: (text: string) => Promise<ItemDraft>;
   // Links an item with no issue to an open one that matches it, or opens one.
   link_issue: (item_id: string) => Promise<IssueLink>;
+  get_github: () => Promise<GitHubAccount>;
+  // Starts signing gh into GitHub in the browser and gives back the code to enter there.
+  sign_in_github: () => Promise<GitHubSignIn>;
+  sign_out_github: () => Promise<void>;
+}
+
+// A described item, with the folder of its repository's checkout on this computer when one was found.
+export type ItemDraft = ItemInput & { checkout?: string };
+
+export interface GitHubAccount {
+  signed_in: boolean;
+  account: string;
+  // Why X-Dev cannot tell, such as gh not being installed; empty otherwise.
+  problem: string;
+}
+
+export interface GitHubSignIn {
+  // The one-time code to enter on GitHub's device page.
+  code: string;
+  url: string;
 }
 
 export interface IssueLink {
@@ -79,6 +101,7 @@ export const runner_method_names = [
   "get_runner",
   "set_runner_setting",
   "set_repository",
+  "add_repository",
   "remove_repository",
   "start_run",
   "stop_run",
@@ -86,4 +109,7 @@ export const runner_method_names = [
   "discard_run",
   "describe_item",
   "link_issue",
+  "get_github",
+  "sign_in_github",
+  "sign_out_github",
 ] as const satisfies readonly (keyof RunnerMethods)[];

@@ -1,12 +1,70 @@
-// GitHub through the gh program the user is signed into, so X-Dev never holds a token: finding an open issue that
-// matches an item, or opening one for it.
+// GitHub through the gh program the user is signed into, so X-Dev never holds a token: signing gh in and out, finding
+// an open issue that matches an item, or opening one for it.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { run_program } from "@x-tech-laboratories/x-libs/agent/programs";
 
 import { title_likeness } from "../shared/items/model.ts";
-import type { IssueLink } from "../shared/runs/runner.ts";
+import type { GitHubAccount, GitHubSignIn, IssueLink } from "../shared/runs/runner.ts";
+
+// ── Signing in ───────────────────────────────────────────────────────────────
+
+const host = "github.com";
+
+// The account gh is signed into on github.com, or none.
+export async function github_account(program = "gh"): Promise<GitHubAccount> {
+  const result = await run_program([program, "auth", "status", "--hostname", host], { stdout: "keep", stderr: "keep" });
+  if (result.exit_code === 127) return { signed_in: false, account: "", problem: `${program} is not installed or not on the PATH` };
+  const account = /Logged in to \S+ (?:account|as) (\S+)/.exec(`${result.stdout}\n${result.stderr}`)?.[1] ?? "";
+  return result.exit_code === 0 && account ? { signed_in: true, account, problem: "" } : { signed_in: false, account: "", problem: "" };
+}
+
+const code_wait_ms = 20_000;
+const device_page = "https://github.com/login/device";
+
+// Starts gh's browser sign-in, giving back the code to enter on GitHub; on_done hears when gh has stored the token.
+export function start_github_sign_in(program: string, on_done: (signed_in: boolean) => void): Promise<GitHubSignIn> {
+  return new Promise((resolve, reject) => {
+    let seen = "";
+    let answered = false;
+    const watch = {
+      write: (chunk: Buffer | string) => {
+        seen += chunk.toString();
+        const code = /\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/.exec(seen)?.[1];
+        if (code && !answered) {
+          answered = true;
+          clearTimeout(timer);
+          resolve({ code, url: /https:\/\/\S+\/login\/device/.exec(seen)?.[0] ?? device_page });
+        }
+      },
+    };
+    const timer = setTimeout(() => {
+      if (answered) return;
+      answered = true;
+      reject(new Error(`gh gave no sign-in code: ${seen.trim().split("\n").at(-1) ?? "no answer"}`));
+    }, code_wait_ms);
+    // The Enter answers gh's prompt to open a browser; the page offers its own link instead.
+    void run_program([program, "auth", "login", "--hostname", host, "--web", "--git-protocol", "ssh", "--skip-ssh-key"], { stdin: "\n", stdout: "show", stderr: "show", out: watch, err: watch }).then(
+      (result) => {
+        if (!answered) {
+          answered = true;
+          clearTimeout(timer);
+          reject(new Error(result.exit_code === 127 ? `${program} is not installed or not on the PATH` : `gh could not start signing in: ${seen.trim().split("\n").at(-1) ?? `exit ${result.exit_code}`}`));
+        }
+        on_done(result.exit_code === 0);
+      },
+      (error: unknown) => {
+        if (!answered) reject(error);
+      },
+    );
+  });
+}
+
+// Signs gh out of the account on github.com, for every program on this computer that uses it.
+export async function github_sign_out(account: string, program = "gh"): Promise<void> {
+  await gh(program, ["auth", "logout", "--hostname", host, "--user", account]);
+}
 
 // ── Issues ───────────────────────────────────────────────────────────────────
 

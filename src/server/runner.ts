@@ -3,19 +3,20 @@
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { run_program } from "@x-tech-laboratories/x-libs/agent/programs";
 import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 
-import { check_item, is_repository, issue_link, item_kinds, read_status, type Item, type ItemInput, type ItemKind } from "../shared/items/model.ts";
+import { check_item, is_repository, issue_link, item_kinds, repository_of_remote, read_status, type Item, type ItemInput, type ItemKind } from "../shared/items/model.ts";
 import { answers_input, append_output, branch_name_of, build_run_input, needs_input, parse_report, read_stream_line, type Run, type StreamResult } from "../shared/runs/model.ts";
-import { read_runner_settings, type RunnerMethods, type RunnerSettings, type StartOptions } from "../shared/runs/runner.ts";
+import { read_runner_settings, type ItemDraft, type RunnerMethods, type RunnerSettings, type StartOptions } from "../shared/runs/runner.ts";
 import { finish_run, find_run, insert_run, latest_report, runs_in_state, set_item_fields, update_run } from "../shared/runs/store.ts";
 import { checkout_state, run_gates } from "./gates.ts";
 import { done, type Stage, type StagesMethods } from "../shared/stages/model.ts";
-import { find_or_open_issue } from "./github.ts";
+import { find_or_open_issue, github_account, github_sign_out, start_github_sign_in } from "./github.ts";
 import type { RunMcp } from "./run_mcp.ts";
 import { run_token_header } from "./run_mcp.ts";
 
@@ -110,7 +111,7 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
 
   function folder_of(repository: string): string {
     const found = read_settings().repositories[repository];
-    if (!found) throw new Error(`X-Dev does not know where ${repository} is on this computer; add it under Settings → Pipeline → Repositories`);
+    if (!found) throw new Error(`X-Dev does not know where ${repository} is on this computer; add its checkout on the Repositories page`);
     if (!existsSync(join(found, ".git"))) throw new Error(`${found} is not a git checkout of ${repository}`);
     return found;
   }
@@ -297,6 +298,16 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
       const settings = read_settings();
       write_settings({ ...settings, repositories: { ...settings.repositories, [repository]: repository_folder } });
     },
+    add_repository: async (repository_folder) => {
+      const folder_given = repository_folder.trim();
+      if (!existsSync(join(folder_given, ".git"))) throw new Error(`${folder_given} is not a git checkout`);
+      const remote = await git(["remote", "get-url", "origin"], folder_given).catch(() => "");
+      const repository = repository_of_remote(remote);
+      if (!is_repository(repository)) throw new Error(`${folder_given} has no origin remote naming its repository; add one with git remote add origin`);
+      const settings = read_settings();
+      write_settings({ ...settings, repositories: { ...settings.repositories, [repository]: folder_given } });
+      return repository;
+    },
     remove_repository: (repository) => {
       const settings = read_settings();
       const { [repository]: _gone, ...rest } = settings.repositories;
@@ -346,15 +357,34 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
       const settings = read_settings();
       const tracked = (database().prepare("SELECT DISTINCT repository FROM items").all() as { repository: string }[]).map((row) => row.repository);
       const repositories = [...new Set([...Object.keys(settings.repositories), ...tracked])].sort();
+      const roots = search_roots(Object.values(settings.repositories));
       const prompt = [
         "Turn the description below into one JSON object and reply with that object alone:",
-        `{"title": "what it is in a few words", "kind": "${item_kinds.join('" or "')}", "repository": "owner/name: one of ${JSON.stringify(repositories)} when it fits, else the one the description names, else empty", "body": "what it asks for, in plain words, as an issue's body"}`,
+        `{"title": "what it is in a few words", "kind": "${item_kinds.join('" or "')}", "repository": "owner/name: one of ${JSON.stringify(repositories)} when it fits, else the one the description names, else empty", "body": "what it asks for, in plain words, as an issue's body", "checkout": "the absolute path of that repository's git checkout on this computer, or empty"}`,
+        "",
+        `Unless the repository is one whose checkout is already known (${JSON.stringify(settings.repositories)}), find its checkout: look for folders holding .git, no more than four levels down, under ${JSON.stringify(roots)}, and check each with git -C <folder> remote get-url origin. Only read; change nothing.`,
         "",
         description,
       ].join("\n");
-      const result = await run_program([settings.claude_program, "-p", "--model", settings.describer_model, "--output-format", "json", "--tools", ""], { stdin: prompt, stdout: "keep", stderr: "keep", cwd: folder });
+      const argv = [settings.claude_program, "-p", "--model", settings.describer_model, "--output-format", "json", "--tools", "Bash,Glob,Read", "--permission-mode", settings.permission_mode];
+      const result = await run_program(argv, { stdin: prompt, stdout: "keep", stderr: "keep", cwd: folder });
       if (result.exit_code !== 0) throw new Error(`the agent could not describe it: ${result.stderr.trim().split("\n").at(-1) || `exit ${result.exit_code}`}`);
-      return draft_of_reply(JSON.parse(result.stdout) as { result?: string }, repositories);
+      const reply = JSON.parse(result.stdout) as { result?: string };
+      const draft: ItemDraft = draft_of_reply(reply, repositories);
+      if (!draft.repository || settings.repositories[draft.repository]) return draft;
+      // The agent's answer is checked against git, and X-Dev looks itself beside the known checkouts when it found none.
+      const claimed = checkout_of_reply(reply);
+      if (claimed && (await checkout_names(claimed, draft.repository))) return { ...draft, checkout: claimed };
+      const found = await find_checkout(draft.repository, roots);
+      return found ? { ...draft, checkout: found } : draft;
+    },
+    get_github: () => github_account(read_settings().gh_program),
+    sign_in_github: () => start_github_sign_in(read_settings().gh_program, () => after_write()),
+    sign_out_github: async () => {
+      const program = read_settings().gh_program;
+      const { account } = await github_account(program);
+      if (account) await github_sign_out(account, program);
+      after_write();
     },
     link_issue: async (item_id) => {
       const item = item_of(item_id);
@@ -381,6 +411,62 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
 }
 
 // ── Describing ───────────────────────────────────────────────────────────────
+
+// Where checkouts are looked for: the folders that hold the known ones, else the home folder.
+export function search_roots(known_checkouts: string[]): string[] {
+  const parents = [...new Set(known_checkouts.map((checkout) => dirname(checkout)))];
+  return parents.length ? parents : [homedir()];
+}
+
+// Whether a folder is a git checkout whose origin names the repository.
+export async function checkout_names(folder: string, repository: string): Promise<boolean> {
+  if (!existsSync(join(folder, ".git"))) return false;
+  const remote = await git(["remote", "get-url", "origin"], folder).catch(() => "");
+  return repository_of_remote(remote).toLowerCase() === repository.toLowerCase();
+}
+
+const search_depth = 4;
+const skipped_folders = new Set(["node_modules", ".git", ".cache", ".local", ".npm", ".nix-profile", "out", "dist"]);
+
+// A checkout of the repository under the roots, looked for no deeper than a few levels, or null.
+export async function find_checkout(repository: string, roots: string[]): Promise<string | null> {
+  const name = repository.split("/")[1]!.toLowerCase();
+  const queue = roots.map((root) => ({ folder: root, depth: 0 }));
+  const candidates: string[] = [];
+  while (queue.length) {
+    const { folder, depth } = queue.shift()!;
+    let entries: string[];
+    try {
+      entries = readdirSync(folder, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && !skipped_folders.has(entry.name))
+        .map((entry) => entry.name);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const path = join(folder, entry);
+      if (existsSync(join(path, ".git"))) candidates.push(path);
+      else if (depth + 1 < search_depth) queue.push({ folder: path, depth: depth + 1 });
+    }
+  }
+  // Folders named for the repository are tried first, since they most likely hold it.
+  candidates.sort((first, second) => Number(second.toLowerCase().endsWith(`/${name}`)) - Number(first.toLowerCase().endsWith(`/${name}`)));
+  for (const candidate of candidates) if (await checkout_names(candidate, repository)) return candidate;
+  return null;
+}
+
+// The checkout path an agent's reply names, or empty.
+export function checkout_of_reply(reply: { result?: string }): string {
+  const text = String(reply.result ?? "");
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end < start) return "";
+  try {
+    return String((JSON.parse(text.slice(start, end + 1)) as { checkout?: unknown }).checkout ?? "").trim();
+  } catch {
+    return "";
+  }
+}
 
 // A known repository the guess names, matched without case or owner, else the guess when it names a repository at all.
 export function match_repository(guess: string, repositories: string[]): string {

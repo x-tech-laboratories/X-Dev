@@ -29,9 +29,11 @@ export interface DesktopMethods {
   get_desktop_settings: () => DesktopSettings;
   set_desktop_setting: <Key extends keyof DesktopSettings>(key: Key, value: DesktopSettings[Key]) => void;
   quit_completely: () => void;
+  // A folder the user picks in the system's dialog, starting from the one given, or null when they cancel.
+  pick_folder: (current: string) => string | null;
 }
 
-export const desktop_method_names = ["get_desktop_settings", "set_desktop_setting", "quit_completely"] as const satisfies readonly (keyof DesktopMethods)[];
+export const desktop_method_names = ["get_desktop_settings", "set_desktop_setting", "quit_completely", "pick_folder"] as const satisfies readonly (keyof DesktopMethods)[];
 
 // What the daemon answers about itself: its settings, and stopping.
 export interface DaemonMethods {

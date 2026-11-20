@@ -9,6 +9,7 @@ import { parseArgs } from "node:util";
 import { run_program } from "@x-tech-laboratories/x-libs/agent/programs";
 
 import { run_gates } from "../server/gates.ts";
+import { repository_of_remote } from "../shared/items/model.ts";
 import { gate_names } from "../shared/stages/model.ts";
 
 // ── Options ──────────────────────────────────────────────────────────────────
@@ -26,11 +27,6 @@ async function git(args: string[]): Promise<string> {
   const result = await run_program(["git", ...args], { stdout: "keep", stderr: "keep" });
   if (result.exit_code !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`);
   return result.stdout.trim();
-}
-
-// The repository's owner/name from its origin, such as x-tech-laboratories/X-Dev.
-export function repository_of_remote(url: string): string {
-  return /[:/]([^/:]+\/[^/]+?)(?:\.git)?\/?$/.exec(url.trim())?.[1] ?? "";
 }
 
 // ── Run ──────────────────────────────────────────────────────────────────────
