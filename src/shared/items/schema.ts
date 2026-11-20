@@ -32,6 +32,10 @@ export const items = sqliteTable(
     source_run_id: text(),
     created_at: text().notNull(),
     closed_at: text(),
+    // The item's pull request as JSON, with its state and checks; empty before Review opens one.
+    pull_request: text().notNull().default(""),
+    // What X-Dev last mirrored to the issue as JSON: its labels, report comments and status sheet, and what failed.
+    github: text().notNull().default("{}"),
   },
   (table) => [index("items_by_repository").on(table.repository)],
 );

@@ -155,7 +155,7 @@ and regular expressions, so a check's own patterns or test data do not trip it.
 | `size` | Functions and files over a set length are named for Review (a warning, not a failure) | Implement, Extract |
 | `x-libs` | No direct import of a library X-Libs wraps, such as `drizzle-orm` or `@tanstack/react-table`, and no new copy of an X-Libs widget | Implement, Extract |
 | `dependencies` | A new dependency is named for Review, with its licence, which must suit GPL-3.0-or-later | Implement, Extract |
-| `ci` | The pull request's checks pass | Review |
+| `ci` | The pull request's checks pass; checks still running hold the item until they finish | Review |
 
 Review also works from a checklist built from the [Application Standard](https://x-tech-laboratories.github.io/standards/application/),
 the [Design Guidelines](https://x-tech-laboratories.github.io/standards/design/) and the guidelines on
@@ -242,10 +242,20 @@ Other backends, such as OpenCode, can be added as plugins later.
   taken from the inbox, is linked to the open issue whose title matches it closely, or opens a new
   issue with its title and body. Its stage is mirrored as a `stage:*` label, and
   `stage:needs-input` marks open questions; X-Dev creates missing labels and never edits others.
-- Each report is posted as a comment starting with `<!-- stage-handoff -->`.
-- Review opens the pull request with `Closes #<n>`. The item page shows the pull request and its
-  checks, kept fresh by GitHub's webhooks through `server/forge_webhook` where the daemon is
-  reachable, and by `CyclePoller` where it is not.
+- Each report is posted as a comment starting with `<!-- stage-handoff -->`; an edited report edits
+  its comment, and a discarded run's comment is marked as discarded rather than deleted, so the
+  thread keeps its order and the notice already sent still leads somewhere. A gate's override
+  reason is part of the report, so it goes with it.
+- The status sheet is kept at the top of the issue's body between `<!-- x-dev-status -->` markers;
+  the rest of the body is left exactly as it was.
+- The issue is closed once the item has been through Close, unless it is closed already.
+- Review opens the pull request with `Closes #<n>`. X-Dev finds it from the item's branch after each
+  run and keeps its state and checks; the item page shows them. `CyclePoller` looks again every half
+  minute while checks run and every five minutes otherwise; GitHub's webhooks through
+  `server/forge_webhook` are still to come.
+- Every write goes through `gh` after the run has ended and never fails it: what went wrong is kept
+  on the item and shown there, and the next run, the next poll or **Sync to GitHub** tries again.
+  Reports and the sheet pass the `secrets` check first and are held back when they fail it.
 - In `x-tech-laboratories` repositories, commits carry `Assisted-by: Claude Code` and the pull request
   says which parts AI wrote.
 
@@ -329,6 +339,12 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 5. **GitHub**: issues, labels, comments, pull requests and checks.
 6. **Board and item pages**, the diff view, notifications.
 7. **Android and remote daemons**.
+
+## Checked for milestone 5
+
+- The labels, comments, body, closing, pull request and checks are tested against a stand-in for
+  `gh` that keeps a fake GitHub in a file, not against GitHub itself; the `gh` arguments and JSON
+  fields follow gh's manual.
 
 ## Checked for milestone 3
 

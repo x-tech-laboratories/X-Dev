@@ -9,6 +9,7 @@ import { join, matchesGlob } from "node:path";
 import { run_program } from "@x-tech-laboratories/x-libs/agent/programs";
 
 import {
+  check_ci,
   check_commits,
   check_comments,
   check_coverage,
@@ -26,6 +27,7 @@ import {
   type Commit,
   type GateResult,
 } from "../shared/gates/model.ts";
+import { find_pull_request, read_checks } from "./github.ts";
 
 // ── Git ──────────────────────────────────────────────────────────────────────
 
@@ -125,11 +127,27 @@ export interface GateContext {
   report?: string;
   // The repository's own checkout and what git said of it before the run, for the worktree gate.
   main_checkout?: { folder: string; before: string };
+  // The gh program the ci gate reads the pull request through; without it the gate is not checked.
+  gh_program?: string;
 }
 
 // What git says of a checkout: its commit and any change in it.
 export async function checkout_state(folder: string): Promise<string> {
   return `${(await git(["rev-parse", "HEAD"], folder)).trim()}\n${await git(["status", "--porcelain"], folder)}`;
+}
+
+// The ci gate: the checks of the pull request from the worktree's branch, read through gh.
+async function ci_gate(context: GateContext): Promise<GateResult> {
+  if (!context.gh_program) return skipped("ci", "pull request checks are read by X-Dev's runner, not here");
+  const branch = (await git(["rev-parse", "--abbrev-ref", "HEAD"], context.worktree)).trim();
+  if (branch === "HEAD") return skipped("ci", "the worktree is on no branch");
+  try {
+    const found = await find_pull_request(context.repository, branch, context.gh_program);
+    const checks = found?.state === "open" ? await read_checks(context.repository, found.number, context.gh_program) : [];
+    return check_ci(found && { ...found, checks, changed_at: "" });
+  } catch (error) {
+    return { gate: "ci", outcome: "failed", findings: [`GitHub could not be reached (${error instanceof Error ? error.message : String(error)}); Sync to GitHub on the item checks again`] };
+  }
 }
 
 // Runs the gates named, in order, giving a result for each; a gate that cannot run here says so as skipped.
@@ -189,7 +207,7 @@ export async function run_gates(gates: string[], context: GateContext): Promise<
         if (!run.ok) findings.push("the lint fails:", ...run.tail);
       }
       results.push(manifest?.scripts?.typecheck || manifest?.scripts?.lint ? (findings.length ? { gate, outcome: "failed", findings } : passed(gate)) : skipped(gate, "the repository has no typecheck or lint script"));
-    } else if (gate === "ci") results.push(skipped(gate, "pull request checks are read once X-Dev tracks pull requests"));
+    } else if (gate === "ci") results.push(await ci_gate(context));
     else results.push(skipped(gate, `X-Dev has no gate called ${gate}`));
   }
   return results;

@@ -21,6 +21,7 @@ import { done, model_suggestions, type Stage } from "../../shared/stages/model.t
 import { calls, data_watch, page, succeeds, use_data } from "../api.ts";
 import { DialogButtons } from "../forms.tsx";
 import { link_issue } from "./index.tsx";
+import { PullRequestPanel } from "./PullRequestPanel.tsx";
 
 // ── Words ────────────────────────────────────────────────────────────────────
 
@@ -356,6 +357,7 @@ export function ItemView({ id }: { id: string }) {
             {found.body && <Markdown text={found.body} />}
             <RunControls key={found.stage} item={found} stages={all_stages} busy={runner_status.data?.running_run_id != null} />
             <StatusSheetSection item={found} />
+            <PullRequestPanel item={found} />
             <NotesSection key={found.notes} item={found} />
             <Section title="Runs">
               {run_list.length === 0 ? <p className="muted">No runs yet.</p> : run_list.map((run) => <RunCard key={run.id} run={run} stages={all_stages} is_latest={run.id === latest?.id} />)}

@@ -97,6 +97,15 @@ git between a base and the worktree, uncommitted and untracked files included, r
 check and lint for the gates that need them, and gives a result per gate. The runner runs a stage's gates once its
 report arrives and stores the results and the user's overrides on the run; `src/cli/check.ts` is `x-dev-check`.
 
+## GitHub
+
+`src/server/github.ts` is every call to `gh`. `src/server/github_sync.ts` keeps an item's issue in step: the runner
+calls it once a run ends or is discarded, X-Libs' `CyclePoller` runs it over the open items, and **Sync to GitHub** runs
+it for one. It works out what should be on GitHub with `src/shared/items/github.ts` and compares it with what it last
+put there, kept on the item as JSON in the `github` column, so a look with nothing changed asks nothing of GitHub. The
+pull request and its checks are the `pull_request` column. A run held only by its `ci` gate is checked again whenever
+the checks change, and moves on once they pass.
+
 ## Board
 
 `src/web/board/index.tsx` draws the board from three reads: the open items, `list_stage_runs` (the latest run of each

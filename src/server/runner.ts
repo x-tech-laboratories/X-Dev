@@ -17,6 +17,7 @@ import { finish_run, find_run, insert_run, latest_report, runs_in_state, set_ite
 import { checkout_state, run_gates } from "./gates.ts";
 import { done, type Stage, type StagesMethods } from "../shared/stages/model.ts";
 import { find_or_open_issue, github_account, github_sign_out, start_github_sign_in } from "./github.ts";
+import type { GitHubSync } from "./github_sync.ts";
 import { tools_guide, type RunTools } from "./run_tools.ts";
 
 // ── Options ──────────────────────────────────────────────────────────────────
@@ -29,6 +30,8 @@ export interface RunnerOptions {
   folder: string;
   // Runs after each change to the data, so history records it and the pages hear of it.
   after_write: () => void;
+  // Mirrors each item to its GitHub issue after its runs; left out, X-Dev touches no issue.
+  github?: GitHubSync;
   // The time, for tests.
   now?: () => string;
 }
@@ -80,7 +83,7 @@ async function ensure_worktree(repository_folder: string, branch: string): Promi
 
 // ── Runner ───────────────────────────────────────────────────────────────────
 
-export function create_runner({ database, stages, run_tools, folder, after_write, now = () => new Date().toISOString() }: RunnerOptions): Runner {
+export function create_runner({ database, stages, run_tools, folder, after_write, github, now = () => new Date().toISOString() }: RunnerOptions): Runner {
   const settings_file = join(folder, "runner.json");
   let current: { run_id: string; controller: AbortController; finished: Promise<void> } | null = null;
   const asked = new Set<string>();
@@ -159,6 +162,7 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       status: { before: run.status_before, after: JSON.stringify(item.status) },
       report,
       ...(repository_folder && before ? { main_checkout: { folder: repository_folder, before } } : {}),
+      ...(github ? { gh_program: github.program() } : {}),
     });
     const failed = gates.filter((gate) => gate.outcome === "failed");
     update_run(database(), run.id, { report, next, end_commit, gates, cost_usd: cost, ended_at: now() });
@@ -242,6 +246,7 @@ export function create_runner({ database, stages, run_tools, folder, after_write
         run_tools.revoke(token);
         if (current?.run_id === run.id) current = null;
         checkouts_before.delete(run.id);
+        void github?.sync_item(run.item_id, { find_pull_request: true });
       });
     current = { run_id: run.id, controller, finished };
   }
@@ -347,6 +352,7 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       update_run(database(), run_id, { state: "discarded", ended_at: run.ended_at ?? now() });
       rmSync(join(folder, "runs", run_id), { recursive: true, force: true });
       after_write();
+      void github?.sync_item(run.item_id);
     },
     describe_item: async (text) => {
       const description = text.trim();
@@ -382,6 +388,10 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       const { account } = await github_account(program);
       if (account) await github_sign_out(account, program);
       after_write();
+    },
+    sync_github: async (item_id) => {
+      if (!github) throw new Error("this copy of X-Dev does not reach GitHub");
+      return github.sync_item(item_id, { find_pull_request: true });
     },
     link_issue: async (item_id) => {
       const item = item_of(item_id);
