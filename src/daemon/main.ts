@@ -31,6 +31,7 @@ import { build_app } from "../server/app.ts";
 import { create_mcp_call, mcp_api } from "../server/mcp_calls.ts";
 import { register_dev_calls } from "../server/calls.ts";
 import { create_github_sync } from "../server/github_sync.ts";
+import { create_github_webhooks, create_webhook_sync } from "../server/github_webhooks.ts";
 import { create_run_tools } from "../server/run_tools.ts";
 import { create_runner } from "../server/runner.ts";
 import { create_stage_files } from "../server/stage_files.ts";
@@ -114,7 +115,11 @@ const sync = create_sync_client({
   storage: file_sync_storage({ file: join(profile, "sync.json"), back_up_before_download: async () => void (await kept.create()) }),
   data_name: "X-Dev data",
   device_name: `X-Dev on ${hostname()}`,
-  on_remote_change: announce_change,
+  on_remote_change: () => {
+    announce_change();
+    // A delivery the server took arrives by sync, and the items it names are looked at here.
+    webhooks.catch_up();
+  },
   on_status: (status) => changes.send(JSON.stringify(status), { event: "sync_status" }),
 });
 
@@ -125,7 +130,7 @@ const local_mcp = create_local_mcp({
   name: "x-dev",
   version,
   instructions: mcp_instructions,
-  api: mcp_api(true),
+  api: mcp_api(true, true),
   is_read_only,
   settings_file: join(profile, "mcp.json"),
   default_port: 3921,
@@ -165,11 +170,23 @@ const github = create_github_sync({
   program: () => runner.methods.get_runner().settings.gh_program,
   after_write: after_run_write,
   stage_label: (id) => stage_files.methods.list_stages().stages.find((stage) => stage.id === id)?.label ?? id,
+  // A repository whose webhooks reach this computer, directly or through the server, is polled only every five minutes.
+  quiet_repository: (repository) => webhooks.heard_recently(repository),
+});
+// GitHub's deliveries to this computer, or to the server it syncs with, sync the items they name within seconds.
+const webhook_sync = create_webhook_sync({ database: () => database, sync_item: (item_id, options) => github.sync_item(item_id, options) });
+const webhooks = create_github_webhooks({
+  database: () => database,
+  secret_file: join(profile, "github-webhook-secret"),
+  settings_file: join(profile, "github-webhook.json"),
+  after_write: announce_change,
+  program: () => runner.methods.get_runner().settings.gh_program,
+  on_targets: (targets) => void webhook_sync.sync_targets(targets),
 });
 const runner = create_runner({ database: () => database, stages: stage_files.methods, run_tools, folder: profile, after_write: after_run_write, github });
 
 // The local MCP endpoint offers every control, the runner's through the same refusals as any caller from elsewhere.
-const mcp_call = create_mcp_call({ database: () => database, announce: announce_change, stages: stage_files.methods, runner: runner.methods });
+const mcp_call = create_mcp_call({ database: () => database, announce: announce_change, stages: stage_files.methods, runner: runner.methods, webhooks: webhooks.methods });
 
 // ── Desktop settings ─────────────────────────────────────────────────────────
 
@@ -196,6 +213,7 @@ const remote = create_remote_access({
       stages: stage_files.methods,
       changes,
       runner: runner.methods,
+      webhooks,
       ...(https ? { https } : {}),
     }),
 });
@@ -254,6 +272,7 @@ async function build_daemon(shut_down: () => void): Promise<FastifyInstance> {
       register_call_table(api, "/runner", runner.methods, { is_read_only, on_change: tell_others });
       register_call_table(api, "/daemon", daemon_methods(shut_down), { is_read_only, on_change: tell_others });
       register_call_table(api, "/remote", remote.methods, { is_read_only });
+      register_call_table(api, "/github_webhook", webhooks.methods, { is_read_only });
     },
     { prefix: "/api" },
   );
@@ -275,6 +294,7 @@ async function main(): Promise<void> {
     stop_watching_stages();
     runner.stop_current();
     github.stop();
+    webhook_sync.close();
     sync.stop();
     backing_up.stop();
     void daemon

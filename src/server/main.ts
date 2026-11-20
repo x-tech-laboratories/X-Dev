@@ -16,6 +16,7 @@ import { sqlite_backups, take_staged_restore } from "@x-tech-laboratories/x-libs
 import { dev_backup_naming, read_schedule } from "../shared/backups.ts";
 import { needs_upgrade, open_store, sync_engine } from "../shared/store.ts";
 import { build_app } from "./app.ts";
+import { create_github_webhooks } from "./github_webhooks.ts";
 import { create_stage_files } from "./stage_files.ts";
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -25,6 +26,8 @@ interface DevConfig {
   backups_folder: string;
   // Claude Code's agents folder in the server's home unless set.
   stages_folder?: string;
+  // The file X-Dev keeps GitHub's webhook secret in, github-webhook-secret beside the database unless set.
+  github_webhook_secret_file?: string;
 }
 
 const server_config = read_server_config({
@@ -41,6 +44,7 @@ const config = JSON.parse(readFileSync(server_config.values.config!, "utf8")) as
 const database_path = resolve(config.database);
 const backups_folder = resolve(config.backups_folder);
 const stages_folder = resolve(config.stages_folder ?? join(homedir(), ".claude", "agents"));
+const webhook_secret_file = resolve(config.github_webhook_secret_file ?? join(dirname(database_path), "github-webhook-secret"));
 
 // ── Database ─────────────────────────────────────────────────────────────────
 
@@ -83,6 +87,16 @@ const backing_up = keep_backing_up(kept, read_backup_schedule);
 const changes = new EventStream();
 const stage_files = create_stage_files({ folder: stages_folder, on_change: () => changes.announce_change() });
 
+// ── Webhooks ─────────────────────────────────────────────────────────────────
+
+// The server runs no GitHub sync itself: a delivery it keeps reaches the desktop daemons syncing with it, which sync the items.
+const webhooks = create_github_webhooks({
+  database: () => database,
+  secret_file: webhook_secret_file,
+  settings_file: join(dirname(webhook_secret_file), "github-webhook.json"),
+  after_write: () => changes.announce_change(),
+});
+
 // ── Server ───────────────────────────────────────────────────────────────────
 
 const app = await build_app({
@@ -102,6 +116,7 @@ const app = await build_app({
   },
   stages: stage_files.methods,
   changes,
+  webhooks,
 });
 await app.listen({ host: server_config.host, port: server_config.port });
 console.info(`X-Dev is serving http://${server_config.host}:${server_config.port}/`);

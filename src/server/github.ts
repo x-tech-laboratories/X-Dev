@@ -214,3 +214,21 @@ export async function read_checks(repository: string, number: number, program = 
   const read = JSON.parse(text || "[]") as { name: string; bucket: string; link?: string; workflow?: string }[];
   return read.map((check) => ({ name: check.name, workflow: check.workflow ?? "", bucket: check_buckets.includes(check.bucket as CheckBucket) ? (check.bucket as CheckBucket) : "pending", link: check.link ?? "" }));
 }
+
+// ── Webhooks ─────────────────────────────────────────────────────────────────
+
+export interface HookConfig {
+  url: string;
+  secret: string;
+  events: readonly string[];
+}
+
+// Adds the hook, or updates the one posting to the same URL, the secret going on gh's standard input, never its argv.
+export async function register_hook(repository: string, hook: HookConfig, program = "gh"): Promise<"added" | "updated"> {
+  const listed = JSON.parse((await gh(program, ["api", "--method", "GET", `repos/${repository}/hooks`])) || "[]") as { id: number; config?: { url?: string } }[];
+  const existing = listed.find((each) => each.config?.url === hook.url);
+  const body = JSON.stringify({ ...(existing ? {} : { name: "web" }), active: true, events: hook.events, config: { url: hook.url, content_type: "json", secret: hook.secret, insecure_ssl: "0" } });
+  if (existing) await gh(program, ["api", "--method", "PATCH", `repos/${repository}/hooks/${existing.id}`, "--input", "-"], body);
+  else await gh(program, ["api", "--method", "POST", `repos/${repository}/hooks`, "--input", "-"], body);
+  return existing ? "updated" : "added";
+}
