@@ -13,8 +13,9 @@ import { desktop_method_names, type DesktopMethods } from "./desktop.ts";
 import { remote_access_method_names, type RemoteAccessMethods } from "./remote_access.ts";
 import { runner_method_names, type RunnerMethods } from "./runs/runner.ts";
 import { stages_method_names, type StagesMethods } from "./stages/model.ts";
-import { backups_api_name, connections_api_name, remote_access_api_name, certificates_api_name, desktop_api_name, stages_api_name, runner_api_name, device_api_name, local_mcp_api_name, device_method_names, events_api_name, dev_api_name, type DeviceMethods, type DevEvents } from "./page_api.ts";
+import { backups_api_name, connections_api_name, remote_access_api_name, certificates_api_name, desktop_api_name, stages_api_name, runner_api_name, device_api_name, local_mcp_api_name, webhooks_api_name, device_method_names, events_api_name, dev_api_name, type DeviceMethods, type DevEvents } from "./page_api.ts";
 import { method_names, type DevMethods } from "./store.ts";
+import { webhook_method_names, type WebhookMethods } from "./webhooks/model.ts";
 
 // ── Bridges ──────────────────────────────────────────────────────────────────
 
@@ -45,5 +46,8 @@ export const remote_access_bridge = define_bridge<RemoteAccessMethods>(remote_ac
 
 // The backups of whichever daemon the window uses: this computer's, or an admin's view of another's.
 export const backup_bridge = define_bridge<BackupMethods>(backups_api_name, backup_method_names);
+
+// GitHub's webhooks on whichever daemon the window uses, answered by that daemon.
+export const webhook_bridge = define_bridge<WebhookMethods>(webhooks_api_name, webhook_method_names);
 
 export const dev_events = define_events<DevEvents>(events_api_name);
