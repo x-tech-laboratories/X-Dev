@@ -10,8 +10,7 @@ import { run_mode_labels, run_modes, type RunMode } from "../../shared/runs/mode
 
 // ── Picker ───────────────────────────────────────────────────────────────────
 
-// The modes this page may pick: every one on the computer that runs the agents, Manual alone from another device, and the
-// one already in use so it still shows.
+// The modes this page may pick: all on the agents' own computer, else Manual plus the one already in use.
 export function offered_modes(current: RunMode | "" = ""): RunMode[] {
   if (page().daemon_is_here === true) return [...run_modes];
   return run_modes.filter((mode) => mode === "default" || mode === current);
