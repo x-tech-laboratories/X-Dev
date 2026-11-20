@@ -40,19 +40,35 @@ Tracking is not a stage: the item and its GitHub issue are the record every stag
 ## How a stage runs
 
 1. The user presses **Run** for the item's current stage, or picks another stage to send it back to.
-2. The daemon builds the input: the issue's title and body, the latest report, and the notes the user
-   added since. Earlier reports and runs are left out.
+2. The daemon builds the input: the issue's title and body, the item's [status sheet](#status-sheet),
+   the latest report, and the notes the user added since. Earlier reports and runs' output are left
+   out.
 3. It runs the stage's agent in the item's worktree, one run at a time across the whole app, and
    streams the output to the page.
 4. The agent ends with a report block (below). The daemon saves it, posts it to the issue as a
    comment and moves the issue's `stage:*` label.
-5. The user reads the report and can edit it before the next stage reads it. Questions the stage
-   asked are answered on the item and go to the next run as notes.
-6. **Discard** drops a run: its report is removed and the worktree is reset to the commit the run
-   started from. Stages before Review commit but never push, so a discard never needs a force-push.
+5. The user reads the report and can edit it before the next stage reads it.
+6. **Discard** drops a run: its report and its status sheet edits are undone and the worktree is
+   reset to the commit the run started from. Stages before Review commit but never push, so a
+   discard never needs a force-push.
 
 A run that fails, is stopped or loses its daemon ends as failed, keeps its output, and changes
 nothing else; the user discards it or runs the stage again.
+
+### Clarifying questions
+
+Any stage can ask the user questions part-way through a run:
+
+- The agent asks through X-Dev's `ask_user` tool with one or more questions, each with its reason and,
+  where it can, choices. It then stops, and the run waits as **Waiting for answers**, shown in the
+  stage's cell on the board and on the item page, with a notification.
+- When the user answers, X-Dev resumes the same agent session with the answers, so the agent goes on
+  where it stopped rather than starting again. The questions and answers stay in the run and are
+  added to the status sheet's Decisions.
+- A waiting run holds the app's one run slot only while the agent is working; other items can run
+  while it waits. A run left waiting can still be discarded whole.
+- Each stage file says when a question is worth asking: only when the answer changes the result and
+  neither the code, the status sheet nor the standards settle it.
 
 ### Report block
 
@@ -68,6 +84,24 @@ nothing else; the user discards it or runs the stage again.
 
 Reports go to GitHub, often in public: no secrets, tokens, personal names or emails.
 
+## Status sheet
+
+Every item has one status sheet: a short summary of where the work stands that every stage reads
+and keeps current. The report says what the next stage must do; the sheet says what is true of the
+item now.
+
+- It has fixed sections: **Goal**, **Current state**, **Decisions**, **Constraints**, **Known
+  problems**, **Open questions** and **Links** (branch, pull request, CI).
+- Agents read and change it through X-Dev's MCP tools, `get_item_status` and `update_item_status`,
+  which reach only the item being run. They edit it in place, never append a log to it.
+- It has a size limit; an update past it is refused until the agent shortens the sheet.
+- Every stage must update it before it ends, which the `status` gate checks.
+- Each edit is kept in the item's history with the run and stage that made it, so it can be traced
+  and undone. The user edits it on the item page, and the user's edits win.
+- It is mirrored to the top of the issue's body, between `<!-- x-dev-status -->` markers.
+
+A run's full output stays on the item page for the user; it is never handed to an agent.
+
 ## Gates
 
 Good practice is enforced by checks, not left to the agent's prompt. After a run, X-Dev runs the
@@ -81,6 +115,7 @@ pull request and nothing that skipped X-Dev gets past them.
 | Gate | Checks | After |
 | ---- | ------ | ----- |
 | `report` | The report block is whole and names a known next stage | every stage |
+| `status` | The run updated the status sheet, and the sheet is within its size limit | every stage |
 | `worktree` | Nothing changed outside the item's worktree, and the main checkout is untouched | every stage that edits |
 | `scope` | Only the paths the stage may touch changed: tests for Specify, docs for Docs, the version for Release | Specify, Docs, Release |
 | `tests-fail-first` | Specify's new tests fail on the commit the item started from | Specify |
@@ -140,6 +175,9 @@ rest. A model is picked from the models the agent backend offers, by alias or ex
 
 ## The agent backend
 
+A run is given X-Dev's MCP endpoint, limited to the item being run, for `ask_user`,
+`get_item_status` and `update_item_status`.
+
 Agent backends are provider plugins (`agent_backend`). The bundled one runs Claude Code:
 
 ```
@@ -173,7 +211,7 @@ Other backends, such as OpenCode, can be added as plugins later.
   of its report, running, failed, needs input, or not reached. The current stage's cell is marked and
   holds Run; any cell holds Send back here and, for its last run, Discard. Clicking a cell opens its
   report. Lanes are grouped by repository and can be filtered, and finished items fold away.
-- **Item**: the issue, then the runs as a timeline, each with its report (editable), its output and
+- **Item**: the issue and its status sheet, then the runs as a timeline, each with its report (editable), its output and
   its cost; the branch's diff; the pull request and its checks; notes for the next run.
 - **Runs**: every run across items, for cost and failures.
 - **History**, and **Settings** with Stages, Repositories, GitHub, Agent backend, then the standard
@@ -234,6 +272,9 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 
 - The exact `claude` flags for running one agent headless with its tools and permission mode, and how
   `stream-json` marks the final message.
+- How a headless run is resumed by its session id with new input, and how a tool such as `ask_user`
+  ends the turn so the run can wait.
+- How a run is given one extra MCP server, scoped to its item, alongside the user's own.
 - That Claude Code ignores the `x-dev-*` frontmatter keys.
 - Which values an agent file's `model` takes (aliases such as `fable` and `opus`, exact ids), and how a
   run overrides it and sets the effort from the command line.
