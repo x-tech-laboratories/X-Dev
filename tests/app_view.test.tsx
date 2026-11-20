@@ -40,9 +40,11 @@ afterEach(() => {
 });
 
 describe("items page", () => {
-  it("opens first, saying there are no items yet", async () => {
+  it("says there are no items yet, the board being the page X-Dev opens on", async () => {
     fake_page();
     render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Board" })).toBeTruthy();
+    go("#/items");
 
     expect(await screen.findByRole("heading", { level: 1, name: "Items" })).toBeTruthy();
     expect(await screen.findByText("No items.")).toBeTruthy();
@@ -51,6 +53,7 @@ describe("items page", () => {
   it("adds an item from its dialog, refusing one without a repository", async () => {
     const store = fake_page();
     render(<App />);
+    go("#/items");
 
     fireEvent.click(await screen.findByRole("button", { name: "Add Item" }));
     const dialog = await screen.findByRole("dialog");
@@ -70,6 +73,7 @@ describe("items page", () => {
     const store = fake_page();
     store.save_item({ ...item, issue_number: 4 });
     render(<App />);
+    go("#/items");
 
     const link = await screen.findByRole("link", { name: "#4" });
     expect(link.getAttribute("href")).toBe("https://github.com/x-tech-laboratories/X-Dev/issues/4");

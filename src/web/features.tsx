@@ -5,6 +5,7 @@
 import type { ReactNode } from "react";
 import type { SettingsSection } from "@x-tech-laboratories/x-libs/web/react/layout";
 
+import { BoardView } from "./board/index.tsx";
 import { ItemsView } from "./items/index.tsx";
 import { RepositoriesView } from "./repositories/index.tsx";
 
@@ -32,6 +33,7 @@ export interface PageFeature {
 }
 
 export const page_features: PageFeature[] = [
+  { id: "board", label: "Board", pages: [{ id: "lanes", label: "Board" }], view: () => <BoardView />, settings: () => [] },
   { id: "items", label: "Items", pages: [{ id: "list", label: "Items" }], view: (parts) => <ItemsView parts={parts} />, settings: () => [] },
   { id: "repositories", label: "Repositories", pages: [{ id: "list", label: "Repositories" }], view: () => <RepositoriesView />, settings: () => [] },
 ];

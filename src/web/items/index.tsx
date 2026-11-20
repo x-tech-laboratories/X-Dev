@@ -159,7 +159,7 @@ export async function link_issue(item_id: string): Promise<void> {
 
 // ── Inbox ────────────────────────────────────────────────────────────────────
 
-function Inbox() {
+export function Inbox() {
   const proposals = use_data((api) => api.list_proposals());
   if (!proposals.data?.length) return null;
   return (
