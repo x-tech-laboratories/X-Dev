@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { create_github_sync, type GitHubSync } from "../src/server/github_sync.ts";
 import { create_run_tools, type RunTools } from "../src/server/run_tools.ts";
@@ -15,6 +15,9 @@ import { runner_method_names } from "../src/shared/runs/runner.ts";
 import { read_transcript } from "../src/shared/runs/transcript.ts";
 import { insert_run, update_run } from "../src/shared/runs/store.ts";
 import { bind_methods, open_store } from "../src/shared/store.ts";
+
+// Each test runs a real stand-in agent process, which takes longer while the whole suite runs at once.
+vi.setConfig({ testTimeout: 30_000 });
 
 const fake_claude = join(import.meta.dirname, "fixtures", "fake_claude.mjs");
 const fake_gh = join(import.meta.dirname, "fixtures", "fake_gh.mjs");
