@@ -4,7 +4,7 @@
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { useState } from "react";
-import { PathInput, SearchBox, Segmented, Select, Switch } from "@x-tech-laboratories/x-libs/web/react/controls";
+import { SearchBox, Segmented, Select, Switch } from "@x-tech-laboratories/x-libs/web/react/controls";
 import { Dialog } from "@x-tech-laboratories/x-libs/web/react/dialog";
 import { FormRow, PageHeading, Section, Tabs, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout";
 import { is_boolean, one_of } from "@x-tech-laboratories/x-libs/web/prefs";
@@ -16,11 +16,11 @@ import { format_count } from "@x-tech-laboratories/x-libs/web/format";
 import { toast } from "@x-tech-laboratories/x-libs/web/react/toasts";
 
 import { is_repository, issue_link, item_kinds, proposed, type Item, type ItemInput, type ItemKind } from "../../shared/items/model.ts";
-import type { ItemDraft } from "../../shared/runs/runner.ts";
+import type { AddedItem, ItemDraft } from "../../shared/runs/runner.ts";
 import { done, type Stage } from "../../shared/stages/model.ts";
 import { attempt, calls, data_watch, page, succeeds, use_data } from "../api.ts";
 import { ItemsBoard } from "../board/index.tsx";
-import { DialogButtons } from "../forms.tsx";
+import { DialogButtons, FolderField } from "../forms.tsx";
 import { confirm_delete, row_actions_column } from "../rows.tsx";
 import { ItemView, stage_label } from "./ItemView.tsx";
 
@@ -62,7 +62,8 @@ function DescribePane({ on_draft }: { on_draft: (draft: ItemDraft) => void }) {
 }
 
 export function ItemDialog({ initial, on_close }: { initial: Item | null; on_close: () => void }) {
-  const { runner, desktop } = page();
+  const { runner, desktop, daemon_is_here } = page();
+  const folder_picker = desktop && daemon_is_here ? (current: string) => desktop.pick_folder(current) : undefined;
   const [way, set_way] = useState<Way>(initial || !runner ? "form" : "describe");
   const [item, set_item] = useState<ItemInput>(() => (initial ? input_of(initial) : blank_item()));
   const [checkout, set_checkout] = useState("");
@@ -74,17 +75,15 @@ export function ItemDialog({ initial, on_close }: { initial: Item | null; on_clo
   async function save(): Promise<void> {
     if (!item.title.trim()) return void toast("An item needs a title.", { tone: "bad" });
     if (!is_repository(item.repository.trim())) return void toast("Name the repository as owner/name.", { tone: "bad" });
-    if (needs_checkout && checkout.trim()) {
-      const added = await attempt(() => runner!.add_repository(checkout.trim()));
+    // Where agents run, the daemon adds the checkout, saves the item and links or opens its issue in one call, as MCP does.
+    if (runner && !initial) {
+      const added = await attempt(() => runner.add_item({ ...item, ...(needs_checkout && checkout.trim() ? { checkout: checkout.trim() } : {}) }));
       if (added === undefined) return;
-      if (added.toLowerCase() !== item.repository.trim().toLowerCase()) return void toast(`That checkout is of ${added}, not ${item.repository.trim()}.`, { tone: "bad" });
       data_watch.bump();
+      on_close();
+      return void tell_issue(added);
     }
-    const id = await attempt(() => calls().save_item(item));
-    if (id === undefined) return;
-    on_close();
-    // An item saved with no issue is linked to a matching open one, or gets one of its own.
-    if (!item.issue_number && runner) await link_issue(id);
+    if (await attempt(() => calls().save_item(item)) !== undefined) on_close();
   }
 
   return (
@@ -121,14 +120,7 @@ export function ItemDialog({ initial, on_close }: { initial: Item | null; on_clo
           </FormRow>
           {needs_checkout && (
             <FormRow label="Checkout" id="item-checkout">
-              <PathInput
-                label="Checkout"
-                placeholder="Its folder on this computer, to add it to Repositories"
-                value={checkout}
-                on_change={set_checkout}
-                pick={async (current) => (desktop ? await desktop.pick_folder(current) : null)}
-                browse_label="Choose…"
-              />
+              <FolderField label="Checkout" placeholder="Its folder on the computer that runs the agents, to add it to Repositories" value={checkout} on_change={set_checkout} pick={folder_picker} />
             </FormRow>
           )}
           <FormRow label="Issue" id="item-issue">
@@ -151,6 +143,22 @@ export function ItemDialog({ initial, on_close }: { initial: Item | null; on_clo
 }
 
 // ── Issues ───────────────────────────────────────────────────────────────────
+
+// Says which issue an added or taken item was linked to or opened, or why none could be.
+function tell_issue(added: AddedItem): void {
+  if (added.problem) toast(`Saved, but its issue could not be found or opened: ${added.problem}`, { tone: "bad" });
+  else if (added.issue) toast(added.issue.opened ? `Opened issue #${added.issue.number}.` : `Linked to the open issue #${added.issue.number}.`, { tone: "good" });
+}
+
+// Takes a proposal into Triage, linking or opening its issue where the daemon reaches GitHub.
+async function take_proposal(id: string): Promise<void> {
+  const { runner } = page();
+  if (!runner) return void (await succeeds(() => calls().accept_proposal(id), "Taken into Triage."));
+  const taken = await attempt(() => runner.take_proposal(id), "Taken into Triage.");
+  if (!taken) return;
+  data_watch.bump();
+  tell_issue(taken);
+}
 
 // Links an item to a matching open issue, or opens one, saying which.
 export async function link_issue(item_id: string): Promise<void> {
@@ -179,7 +187,7 @@ export function Inbox() {
               {proposal.body && <span className="muted small"> · {proposal.body}</span>}
             </span>
             <span className="row-actions">
-              <button type="button" aria-label={`Take ${proposal.title}`} onClick={() => void succeeds(() => calls().accept_proposal(proposal.id), "Taken into Triage.").then((taken) => (taken ? link_issue(proposal.id) : undefined))}>
+              <button type="button" aria-label={`Take ${proposal.title}`} onClick={() => void take_proposal(proposal.id)}>
                 Take
               </button>
               <button type="button" aria-label={`Drop ${proposal.title}`} onClick={() => void succeeds(() => calls().drop_proposal(proposal.id))}>

@@ -4,12 +4,12 @@
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { useState } from "react";
-import { PathInput } from "@x-tech-laboratories/x-libs/web/react/controls";
 import { PageHeading, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout";
 import { Empty, Loaded, use_resource } from "@x-tech-laboratories/x-libs/web/react/states";
 import { DataTable, type TableColumn } from "@x-tech-laboratories/x-libs/web/react/table";
 import { toast } from "@x-tech-laboratories/x-libs/web/react/toasts";
 
+import { FolderField } from "../forms.tsx";
 import { attempt, data_watch, page, succeeds, use_data } from "../api.ts";
 import { confirm_delete } from "../rows.tsx";
 
@@ -22,7 +22,8 @@ interface RepositoryRow {
 }
 
 export function RepositoriesView() {
-  const { runner, desktop } = page();
+  const { runner, desktop, daemon_is_here } = page();
+  const folder_picker = desktop && daemon_is_here ? (current: string) => desktop.pick_folder(current) : undefined;
   const [folder, set_folder] = useState("");
   const status = use_resource(async () => (runner ? await runner.get_runner() : null), [runner], { watch: data_watch });
   const items = use_data((api) => api.list_items(false));
@@ -31,7 +32,7 @@ export function RepositoriesView() {
     return (
       <>
         <PageHeading title="Repositories" />
-        <p className="muted">Repositories are kept by the desktop app, whose background process holds their checkouts and runs the agents.</p>
+        <p className="muted">Repositories are kept by the X-Dev daemon that holds their checkouts and runs the agents; an admin connected to it sees them here.</p>
       </>
     );
   }
@@ -77,16 +78,9 @@ export function RepositoriesView() {
 
   return (
     <>
-      <PageHeading title="Repositories" subtitle="Each repository's checkout on this computer; an item's runs work in a worktree of it." />
+      <PageHeading title="Repositories" subtitle={daemon_is_here ? "Each repository's checkout on this computer; an item's runs work in a worktree of it." : "Each repository's checkout on the computer that runs the agents; an item's runs work in a worktree of it. Type a folder's path there."} />
       <Toolbar>
-        <PathInput
-          label="Checkout folder"
-          placeholder="/path/to/a/checkout"
-          value={folder}
-          on_change={set_folder}
-          pick={async (current) => (desktop ? await desktop.pick_folder(current) : null)}
-          browse_label="Choose…"
-        />
+        <FolderField label="Checkout folder" placeholder="/path/to/a/checkout" value={folder} on_change={set_folder} pick={folder_picker} />
         <button type="button" className="accent solid" disabled={!folder.trim()} onClick={() => void add()}>
           Add Repository
         </button>
