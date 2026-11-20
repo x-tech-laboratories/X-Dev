@@ -1,13 +1,13 @@
-// The MCP tools a running stage's agent gets: asking the user, reading and changing its item's status sheet, and
-// proposing new items. Each run reaches only its own item, named by the token in its MCP config.
+// The X-Dev tools a running stage's agent gets: asking the user, reading and changing its item's status sheet, and
+// proposing new items. They are a small HTTP server on this computer that the agent calls with curl, since Claude Code
+// refuses a run's own MCP servers where a managed MCP config is present; each run reaches only its item by its token.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { randomBytes } from "node:crypto";
 
 import fastify, { type FastifyInstance } from "fastify";
-import type { MethodSpec } from "@x-tech-laboratories/x-libs/api_spec";
-import { register_mcp_route } from "@x-tech-laboratories/x-libs/server/mcp";
+import { positional_args, type MethodSpec } from "@x-tech-laboratories/x-libs/api_spec";
 import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 
 import { item_kinds, merge_status, read_status } from "../shared/items/model.ts";
@@ -18,7 +18,7 @@ import { find_run, propose, set_item_fields, update_run, type ProposalInput } fr
 
 const status_text = { type: "string", description: "The section's new text, replacing what it held." };
 
-export const run_tools: Record<string, MethodSpec> = {
+export const tool_specs: Record<string, MethodSpec> = {
   get_item_status: { description: "Your item's status sheet: Goal, Current state, Decisions, Constraints, Known problems, Open questions and Links.", params: [] },
   update_item_status: {
     description: "Replaces sections of your item's status sheet. Edit sections in place and keep the sheet short; never append a log.",
@@ -77,7 +77,7 @@ export interface RunGrant {
   max_proposals: number;
 }
 
-export interface RunMcpOptions {
+export interface RunToolsOptions {
   database: () => SqlDatabase;
   // Runs after each change, so history records it and the pages hear of it.
   after_write: () => void;
@@ -85,8 +85,8 @@ export interface RunMcpOptions {
   on_asked: (run_id: string) => void;
 }
 
-export interface RunMcp {
-  // A token for the run's MCP config; the grant ends with revoke.
+export interface RunTools {
+  // A token the run's agent sends with each call; the grant ends with revoke.
   grant: (grant: RunGrant) => string;
   revoke: (token: string) => void;
   url: () => string;
@@ -96,7 +96,29 @@ export interface RunMcp {
 
 export const run_token_header = "x-dev-run";
 
-export function create_run_mcp({ database, after_write, on_asked }: RunMcpOptions): RunMcp {
+// How the agent calls the tools, added to every run's input so it holds whatever the stage file says.
+export function tools_guide(): string {
+  const tools = Object.entries(tool_specs)
+    .map(([name, spec]) => `- \`${name}\`: ${spec.description} Arguments: ${spec.params.length ? spec.params.map((param) => `${param.name}${param.optional ? " (optional)" : ""}`).join(", ") : "none"}.`)
+    .join("\n");
+  return [
+    "## X-Dev tools",
+    "",
+    "Call X-Dev's tools with curl; the address and your run's token are in your environment. Send the arguments by name as one JSON object:",
+    "",
+    "```sh",
+    `curl -s -X POST "$X_DEV_RUN_URL/tool/update_item_status" -H "${run_token_header}: $X_DEV_RUN_TOKEN" -H "content-type: application/json" --data-binary @- <<'JSON'`,
+    '{"changes": {"current_state": "Planned; the next stage builds the lanes."}}',
+    "JSON",
+    "```",
+    "",
+    "The answer is {\"result\": ...} or {\"error\": \"...\"}. The tools:",
+    "",
+    tools,
+  ].join("\n");
+}
+
+export function create_run_tools({ database, after_write, on_asked }: RunToolsOptions): RunTools {
   const grants = new Map<string, RunGrant>();
   let app: FastifyInstance | null = null;
   let address = "";
@@ -141,23 +163,23 @@ export function create_run_mcp({ database, after_write, on_asked }: RunMcpOption
     url: () => address,
     start: async () => {
       app = fastify({ forceCloseConnections: true });
-      await register_mcp_route(app, {
-        name: "x-dev-run",
-        version: "1",
-        instructions: "Tools for the X-Dev stage you are running, each reaching only your item.",
-        path: "/mcp",
-        api: run_tools,
-        is_read_only: (method) => method === "get_item_status",
-        call: (method, args, request) => {
-          const grant = grants.get(String(request.headers[run_token_header] ?? ""));
-          if (!grant) throw new Error("this run has ended");
-          return call(method, args, grant);
-        },
+      // Each tool is POST /tool/<name> with its arguments by name as a JSON object; the answer is { result } or { error }.
+      app.post<{ Params: { name: string } }>("/tool/:name", async (request, reply) => {
+        const grant = grants.get(String(request.headers[run_token_header] ?? ""));
+        if (!grant) return reply.code(403).send({ error: "this run has ended, or the token is wrong" });
+        const spec = tool_specs[request.params.name];
+        if (!spec) return reply.code(404).send({ error: `no tool ${request.params.name}; the tools are ${Object.keys(tool_specs).join(", ")}` });
+        try {
+          const args = positional_args(spec, (request.body ?? {}) as Record<string, unknown>);
+          return { result: call(request.params.name, args, grant) };
+        } catch (error) {
+          return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+        }
       });
       // Only this computer's own programs reach it, and only with a run's token.
       await app.listen({ host: "127.0.0.1", port: 0 });
       const bound = app.server.address();
-      address = typeof bound === "object" && bound ? `http://127.0.0.1:${bound.port}/mcp` : "";
+      address = typeof bound === "object" && bound ? `http://127.0.0.1:${bound.port}` : "";
     },
     stop: async () => {
       await app?.close();

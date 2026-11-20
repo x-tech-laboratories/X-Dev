@@ -83,9 +83,11 @@ folder, or type it in a browser; an item's first run makes its worktree there, a
 **Settings → Pipeline → Runs** sets how the agents' actions are approved (auto, checking each one, unless set), the
 `claude` program, and the small model that fills in described items.
 
-Each run is `claude -p` with the stage as its agent, the run's input on standard input, and an MCP server of X-Dev's own
-that lets it reach only its item: `ask_user`, `get_item_status`, `update_item_status` and `propose_item`. A run's files
-(its agent definition and MCP config) are kept in the profile folder under `runs/`. Runs are not versioned in History;
+Each run is `claude -p` with the stage as its agent and the run's input on standard input. Its X-Dev tools, `ask_user`,
+`get_item_status`, `update_item_status` and `propose_item`, reach only its item: they are a small HTTP server on
+127.0.0.1 that the agent calls with curl, the address and the run's token in its environment, since Claude Code refuses
+a run's own MCP servers where a managed MCP config is present. A run's agent definition is kept in the profile folder
+under `runs/`. Runs are not versioned in History;
 their transcripts and reports are kept with them.
 
 X-Dev starts `claude`, `git` and `gh` as programs, an exception to the Application Standard's rule that a daemon does
