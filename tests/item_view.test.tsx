@@ -188,7 +188,7 @@ describe("the items page", () => {
     propose(database, { item_id: source, run_id: run }, { title: "Export the board", why: "For reports." });
     render(<App />);
 
-    const inbox = (await screen.findByRole("heading", { name: "Inbox (2)" })).closest("section")!;
+    const inbox = (await screen.findByRole("heading", { name: "Inbox 2" })).closest("section")!;
     fireEvent.click(within(inbox).getByRole("button", { name: "Take Faster drawing" }));
     await waitFor(() => expect(store.get_item(taken).stage).toBe("triage"));
     await waitFor(() => expect(runner.link_issue).toHaveBeenCalledWith(taken));

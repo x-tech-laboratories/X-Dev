@@ -145,12 +145,48 @@ button.result-row {
   width: 100%;
 }
 
-/* Each proposal in the inbox on its own line, its buttons beside it. */
+/* The inbox sits tight around its heading and its proposals, scrolling once there are more than a few. */
+.inbox-panel {
+  flex: none;
+  gap: var(--space-2);
+  margin-block: var(--space-5);
+  padding-block: var(--space-3);
+}
+
+.inbox-panel > .panel-head {
+  position: static;
+  min-height: var(--row-height);
+  margin-block: 0;
+  padding-block: 0;
+}
+
+/* Each proposal on one line, its buttons at the far end. */
 .inbox {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-1);
+  max-height: 10rem;
+  margin: 0;
   padding: 0;
+  overflow-y: auto;
   list-style: none;
+}
+
+.inbox > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.inbox-text {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+/* A switch in the toolbar is as tall as the controls beside it, so the row lines up. */
+.toolbar > .check {
+  min-height: var(--control-height);
 }
 
 /* Each gate on its own line, its findings indented under it. */
@@ -167,65 +203,38 @@ button.result-row {
   font-size: var(--text-h3);
 }
 
-/* The board scrolls sideways inside itself on a narrow window, never the page. */
-.board-scroll {
-  overflow-x: auto;
-  padding-bottom: var(--space-4);
-}
-
-/* One grid of fixed-width stage columns, lined up across the lanes when cards are grouped by repository. */
-.board {
-  --board-column-width: 280px;
-  display: grid;
-  column-gap: var(--space-5);
-  row-gap: var(--space-3);
-  align-items: start;
-  min-width: max-content;
-}
-
-/* A column's name and how many cards it holds, at either end of its head. */
-.board-column-head,
-.board-column-label {
+/* The board page fills the main pane without scrolling it; the board under the toolbar and inbox scrolls instead. */
+body.contained main:has(> .board) {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin: 0;
-  padding: var(--space-2) var(--space-1);
+  flex-direction: column;
+  padding-bottom: 0;
+  overflow: hidden;
 }
 
-/* Each column names itself only on a phone, where the columns stack. */
-.board-column-label {
-  display: none;
+body.contained main > .board {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 0 var(--space-5);
 }
 
-.board-lane-head {
-  grid-column: 1 / -1;
-  margin: var(--space-5) 0 0;
+/* A card whose run failed or waits for answers gets an edge on its left, coloured by Halon's tone-edge class. */
+.board-card:is(.tone-edge-bad, .tone-edge-warn) {
+  border-left: 3px solid;
 }
 
-/* A column's cards stacked with a little room between them, and room to drop a card when it has none. */
-.board-column {
-  display: grid;
-  gap: var(--space-3);
-  align-content: start;
-  min-width: 0;
-  min-height: var(--row-height);
-  border-radius: var(--radius-default);
-}
-
-.board-card {
-  min-width: 0;
-}
-
-/* An item's card, with a title of up to three lines and its facts on small lines below. */
+/* An item's card, its facts on small lines under a title of up to three lines. */
 .item-card {
   display: grid;
   gap: var(--space-3);
   min-width: 0;
-  padding: 10px var(--space-5);
-  border-radius: var(--radius-small);
-  cursor: pointer;
+}
+
+.item-card > .board-card-title {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
 .card-top {
@@ -239,16 +248,6 @@ button.result-row {
 .card-top button.menu-trigger {
   width: var(--space-7);
   height: var(--space-7);
-}
-
-.card-title {
-  display: -webkit-box;
-  overflow: hidden;
-  font-size: 14px;
-  font-weight: 500;
-  text-decoration: none;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
 }
 
 .card-run {
@@ -317,27 +316,6 @@ button.result-row {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-}
-
-/* On a phone the columns stack into a list of stages with their cards, the empty ones left out. */
-@media (max-width: 700px) {
-  .board-scroll {
-    overflow-x: visible;
-  }
-
-  .board {
-    grid-template-columns: minmax(0, 1fr) !important;
-    min-width: 0;
-  }
-
-  .board-column-head,
-  .board-column.empty {
-    display: none;
-  }
-
-  .board-column-label {
-    display: flex;
-  }
 }
 
 .run-dialog {

@@ -10,6 +10,7 @@ import { FormRow, PageHeading, Section, Tabs, Toolbar } from "@x-tech-laboratori
 import { Empty, Loaded, use_resource } from "@x-tech-laboratories/x-libs/web/react/states";
 import { ComboField } from "@x-tech-laboratories/x-libs/web/react/suggestions";
 import { DataTable, type TableColumn } from "@x-tech-laboratories/x-libs/web/react/table";
+import { format_count } from "@x-tech-laboratories/x-libs/web/format";
 import { toast } from "@x-tech-laboratories/x-libs/web/react/toasts";
 
 import { is_repository, issue_link, item_kinds, type Item, type ItemInput, type ItemKind } from "../../shared/items/model.ts";
@@ -159,17 +160,20 @@ export async function link_issue(item_id: string): Promise<void> {
 
 // ── Inbox ────────────────────────────────────────────────────────────────────
 
+// The proposals waiting for the user, one line each; with none it is just its heading.
 export function Inbox() {
   const proposals = use_data((api) => api.list_proposals());
-  if (!proposals.data?.length) return null;
+  const waiting = proposals.data ?? [];
   return (
-    <Section title={`Inbox (${proposals.data.length})`}>
-      <ul className="inbox">
-        {proposals.data.map((proposal) => (
+    <Section class_name="inbox-panel" level={3} title={<>Inbox <span className="group-count">{format_count(waiting.length)}</span></>}>
+      {waiting.length > 0 && <ul className="inbox">
+        {waiting.map((proposal) => (
           <li key={proposal.id}>
-            <a href={`#/items/${proposal.id}`}>{proposal.title}</a>
-            <span className="muted small"> · {proposal.repository}</span>
-            {proposal.body && <div className="muted small">{proposal.body}</div>}
+            <span className="inbox-text">
+              <a href={`#/items/${proposal.id}`}>{proposal.title}</a>
+              <span className="muted small"> · {proposal.repository}</span>
+              {proposal.body && <span className="muted small"> · {proposal.body}</span>}
+            </span>
             <span className="row-actions">
               <button type="button" aria-label={`Take ${proposal.title}`} onClick={() => void succeeds(() => calls().accept_proposal(proposal.id), "Taken into Triage.").then((taken) => (taken ? link_issue(proposal.id) : undefined))}>
                 Take
@@ -180,7 +184,7 @@ export function Inbox() {
             </span>
           </li>
         ))}
-      </ul>
+      </ul>}
     </Section>
   );
 }

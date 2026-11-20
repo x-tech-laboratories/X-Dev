@@ -31,10 +31,12 @@ export interface PageFeature {
   pages: FeaturePage[];
   view: (parts: string[]) => ReactNode;
   settings: (props: FeatureSettingsProps) => SettingsSection[];
+  // Keeps the window still so the page's own panes scroll, as the board does.
+  contained?: boolean;
 }
 
 export const page_features: PageFeature[] = [
-  { id: "board", label: "Board", pages: [{ id: "lanes", label: "Board" }], view: () => <BoardView />, settings: () => [] },
+  { id: "board", label: "Board", pages: [{ id: "lanes", label: "Board" }], view: () => <BoardView />, settings: () => [], contained: true },
   { id: "items", label: "Items", pages: [{ id: "list", label: "Items" }], view: (parts) => <ItemsView parts={parts} />, settings: () => [] },
   { id: "runs", label: "Runs", pages: [{ id: "list", label: "Runs" }], view: () => <RunsView />, settings: () => [] },
   { id: "repositories", label: "Repositories", pages: [{ id: "list", label: "Repositories" }], view: () => <RepositoriesView />, settings: () => [] },
