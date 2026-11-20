@@ -6,7 +6,7 @@
 import { useState } from "react";
 import type { Client } from "@x-tech-laboratories/x-libs/electron/bridge";
 import { ChipField, with_draft } from "@x-tech-laboratories/x-libs/web/react/chip_field";
-import { Select } from "@x-tech-laboratories/x-libs/web/react/controls";
+import { NumberField, Select } from "@x-tech-laboratories/x-libs/web/react/controls";
 import { Dialog } from "@x-tech-laboratories/x-libs/web/react/dialog";
 import { FormGroup, FormRow, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout";
 import { Empty, Loaded, use_resource } from "@x-tech-laboratories/x-libs/web/react/states";
@@ -14,7 +14,7 @@ import { ComboField } from "@x-tech-laboratories/x-libs/web/react/suggestions";
 import { DataTable, type TableColumn } from "@x-tech-laboratories/x-libs/web/react/table";
 import { toast } from "@x-tech-laboratories/x-libs/web/react/toasts";
 
-import { done, efforts, gate_names, model_suggestions, tool_suggestions, type Effort, type Stage, type StageInput, type StagesMethods } from "../../shared/stages/model.ts";
+import { default_max_proposals, done, efforts, gate_names, model_suggestions, tool_suggestions, type Effort, type Stage, type StageInput, type StagesMethods } from "../../shared/stages/model.ts";
 import { attempt, data_watch, succeeds } from "../api.ts";
 import { DialogButtons } from "../forms.tsx";
 import { confirm_delete, row_actions_column } from "../rows.tsx";
@@ -22,7 +22,7 @@ import { confirm_delete, row_actions_column } from "../rows.tsx";
 // ── Dialog ───────────────────────────────────────────────────────────────────
 
 function blank_stage(): StageInput {
-  return { id: "", label: "", description: "", next: done, model: "", effort: "", gates: ["report", "status"], paths: [], tools: [], disallowed_tools: [], prompt: "" };
+  return { id: "", label: "", description: "", next: done, model: "", effort: "", gates: ["report", "status"], max_proposals: default_max_proposals, paths: [], tools: [], disallowed_tools: [], prompt: "" };
 }
 
 function input_of(stage: Stage): StageInput {
@@ -75,6 +75,9 @@ export function StageDialog({ stages_client, initial, others, on_close }: StageD
         </FormRow>
         <FormRow label="Gates" id="stage-gates">
           <ChipField id="stage-gates" label="Gates" placeholder="Add a gate…" values={stage.gates} suggestions={gate_names} list_on_focus on_change={(gates) => change({ gates })} {...draft_of("gates")} />
+        </FormRow>
+        <FormRow label="Most proposals" id="stage-max-proposals">
+          <NumberField label="Most proposals" bare min={0} unit="per run, 0 for no limit" value={stage.max_proposals} on_change={(max_proposals) => change({ max_proposals: max_proposals ?? default_max_proposals })} />
         </FormRow>
         <FormRow label="Prompt" id="stage-prompt">
           <textarea id="stage-prompt" className="stage-prompt" rows={14} spellCheck={false} value={stage.prompt} onChange={(event) => change({ prompt: event.currentTarget.value })} />

@@ -114,8 +114,9 @@ building feature after feature.
   that raised it. No GitHub issue is made yet, so ideas the user turns down never reach the tracker.
 - Before adding one, `propose_item` looks for an open item or proposal in the same repository with a
   close title and adds to it instead, so the same idea is not proposed twice.
-- A run may make a few proposals at most (a setting, three unless set); past that the tool refuses,
-  and the agent lists the rest in its report.
+- Each stage file caps how many proposals one run may make (`x-dev-max-proposals`, 0 for no limit):
+  three unless set, ten for Triage, Review and Close, whose work includes finding follow-ups. Past
+  the cap the tool refuses, and the agent lists the rest in its report.
 - Proposals wait in an **Inbox** on the board, above the lanes. The user accepts one, which makes its
   GitHub issue and moves it to Triage, merges it into another item, or drops it. Dropped ones stay in
   the history.

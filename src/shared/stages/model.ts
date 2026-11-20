@@ -33,6 +33,9 @@ export const gate_names = [
   "ci",
 ];
 
+// How many proposals a run may make when its stage file sets none; 0 means no limit.
+export const default_max_proposals = 3;
+
 // The next stage of the last one.
 export const done = "done";
 
@@ -49,6 +52,8 @@ export interface Stage {
   model: string;
   effort: Effort | "";
   gates: string[];
+  // How many new items a run may propose; 0 for no limit.
+  max_proposals: number;
   // What the stage may change, as globs; empty for anything.
   paths: string[];
   // Empty for every tool.
@@ -127,6 +132,7 @@ export function check_stage(input: StageInput, other_ids: string[]): StageInput 
   const gates = clean_list(input.gates);
   const unknown_gate = gates.find((gate) => !gate_names.includes(gate));
   if (unknown_gate) throw new Error(`"${unknown_gate}" is not a gate`);
+  if (!Number.isInteger(input.max_proposals) || input.max_proposals < 0) throw new Error("the most proposals must be a whole number, 0 for no limit");
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("a stage needs a prompt telling its agent what to do");
   return {
@@ -137,6 +143,7 @@ export function check_stage(input: StageInput, other_ids: string[]): StageInput 
     model: input.model.trim(),
     effort: input.effort,
     gates,
+    max_proposals: input.max_proposals,
     paths: clean_list(input.paths),
     tools: clean_list(input.tools),
     disallowed_tools: clean_list(input.disallowed_tools),

@@ -51,7 +51,7 @@ set. The admins are read from the accounts file `X_DEV_PASSWORD_HASH_FILE` names
 A stage is a file named `stage-<id>.md`, such as `stage-plan.md`, in Claude Code's agents folder, `~/.claude/agents`, so
 Claude Code in a terminal and X-Dev run the same stages. Its frontmatter holds Claude Code's own keys (`name`,
 `description`, `model`, `effort`, `tools`, `disallowedTools`) and X-Dev's (`x-dev-label`, `x-dev-order`, `x-dev-next`,
-`x-dev-gates`, `x-dev-paths`); the rest of the file is the prompt. X-Dev keeps every other key and comment when it
+`x-dev-gates`, `x-dev-paths`, `x-dev-max-proposals`); the rest of the file is the prompt. X-Dev keeps every other key and comment when it
 writes a file back, and shows a change made in an editor at once. A file it cannot read is listed with why, and never
 overwritten.
 

@@ -10,6 +10,7 @@ import { Document, parseDocument } from "yaml";
 
 import {
   check_stage,
+  default_max_proposals,
   done,
   efforts,
   label_of_id,
@@ -59,6 +60,7 @@ export function stage_of_file(id: string, file: StageFile): Stage {
   const keys = (file.frontmatter.toJS() ?? {}) as Record<string, unknown>;
   const effort = text_of(keys.effort);
   const order = Number(keys["x-dev-order"]);
+  const max_proposals = Number(keys["x-dev-max-proposals"] ?? default_max_proposals);
   return {
     id,
     label: text_of(keys["x-dev-label"]) || label_of_id(id),
@@ -68,6 +70,7 @@ export function stage_of_file(id: string, file: StageFile): Stage {
     model: text_of(keys.model),
     effort: efforts.includes(effort as Effort) ? (effort as Effort) : "",
     gates: list_of(keys["x-dev-gates"]),
+    max_proposals: Number.isInteger(max_proposals) && max_proposals >= 0 ? max_proposals : default_max_proposals,
     paths: list_of(keys["x-dev-paths"]),
     tools: list_of(keys.tools),
     disallowed_tools: list_of(keys.disallowedTools),
@@ -96,6 +99,7 @@ export function write_stage_file(stage: Stage, previous: Document | null): strin
   document.set("x-dev-order", stage.order);
   document.set("x-dev-next", stage.next);
   set_or_drop(document, "x-dev-gates", stage.gates);
+  document.set("x-dev-max-proposals", stage.max_proposals);
   set_or_drop(document, "x-dev-paths", stage.paths);
   return `---\n${String(document).trimEnd()}\n---\n\n${stage.prompt.trim()}\n`;
 }

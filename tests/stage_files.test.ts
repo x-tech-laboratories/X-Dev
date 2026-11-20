@@ -20,6 +20,7 @@ const plan: StageInput = {
   model: "fable",
   effort: "high",
   gates: ["report", "status"],
+  max_proposals: 3,
   paths: [],
   tools: [],
   disallowed_tools: ["Edit", "Write"],
@@ -50,6 +51,7 @@ describe("a stage's fields", () => {
     expect(() => check_stage({ ...plan, effort: "huge" as never }, [])).toThrow('"huge" is not an effort');
     expect(() => check_stage({ ...plan, gates: ["vibes"] }, [])).toThrow('"vibes" is not a gate');
     expect(() => check_stage({ ...plan, prompt: " " }, [])).toThrow("a stage needs a prompt");
+    expect(() => check_stage({ ...plan, max_proposals: -1 }, [])).toThrow("the most proposals must be a whole number, 0 for no limit");
   });
 });
 
@@ -59,7 +61,7 @@ describe("a stage's fields", () => {
 
 describe("a stage file", () => {
   it("reads Claude Code's keys and X-Dev's own", () => {
-    const text = "---\nname: stage-plan\ndescription: Plans.\nmodel: fable\neffort: high\ntools: Read, Grep\nx-dev-order: 2\nx-dev-next: implement\nx-dev-gates: [report]\n---\n\nYou are the Plan stage.\n";
+    const text = "---\nname: stage-plan\ndescription: Plans.\nmodel: fable\neffort: high\ntools: Read, Grep\nx-dev-order: 2\nx-dev-next: implement\nx-dev-gates: [report]\nx-dev-max-proposals: 10\n---\n\nYou are the Plan stage.\n";
     expect(stage_of_file("plan", parse_stage_file(text))).toEqual({
       id: "plan",
       label: "Plan",
@@ -69,11 +71,18 @@ describe("a stage file", () => {
       model: "fable",
       effort: "high",
       gates: ["report"],
+      max_proposals: 10,
       paths: [],
       tools: ["Read", "Grep"],
       disallowed_tools: [],
       prompt: "You are the Plan stage.",
     });
+  });
+
+  it("lets a run make three proposals when the file names no limit", () => {
+    expect(stage_of_file("plan", parse_stage_file("---\nname: stage-plan\n---\nPlan.")).max_proposals).toBe(3);
+    expect(stage_of_file("plan", parse_stage_file("---\nx-dev-max-proposals: 0\n---\nPlan.")).max_proposals).toBe(0);
+    expect(stage_of_file("plan", parse_stage_file("---\nx-dev-max-proposals: many\n---\nPlan.")).max_proposals).toBe(3);
   });
 
   it("is refused without frontmatter or with broken YAML", () => {
