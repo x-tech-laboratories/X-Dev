@@ -12,7 +12,7 @@ import { bind_methods, open_store } from "../src/shared/store.ts";
 const label = (stage: string) => stage[0]!.toUpperCase() + stage.slice(1);
 
 function snapshot(changes: Partial<RunSnapshot>): RunSnapshot {
-  return { id: "r1", item_id: "i1", item_title: "Runs page", stage: "plan", state: "running", proposals: 0, summary: "", error: "", question: "", ...changes };
+  return { id: "r1", item_id: "i1", item_title: "Runs page", stage: "plan", state: "running", proposals: 0, summary: "", error: "", question: "", awaiting: "", ...changes };
 }
 
 // ============================================================================
@@ -23,7 +23,14 @@ describe("run notices", () => {
   it("say nothing of a run seen for the first time, and remember it while it runs", () => {
     const result = run_notices(new Map(), [snapshot({ proposals: 1 })], label);
     expect(result.notices).toEqual([]);
-    expect(result.seen.get("r1")).toEqual({ state: "running", proposals_before: 1 });
+    expect(result.seen.get("r1")).toEqual({ state: "running", proposals_before: 1, awaiting: "" });
+  });
+
+  it("tell once when a running run starts waiting for a tool call to be approved", () => {
+    const first = run_notices(new Map(), [snapshot({})], label);
+    const asked = run_notices(first.seen, [snapshot({ awaiting: "Bash" })], label);
+    expect(asked.notices).toEqual([{ kind: "run_approval", key: "item-i1", title: "Plan waits for approval: Runs page", body: "Allow or deny Bash to let the run go on.", url: "x-dev://items/i1/r1" }]);
+    expect(run_notices(asked.seen, [snapshot({ awaiting: "Bash" })], label).notices).toEqual([]);
   });
 
   it("tell of a run that finished, failed or asked, keyed by its item and linking to it", () => {

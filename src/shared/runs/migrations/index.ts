@@ -33,5 +33,13 @@ export const migrations: DrizzleMigration[] = [
       "ALTER TABLE `runs` ADD `retry_of` text DEFAULT '' NOT NULL;",
       "ALTER TABLE `runs` ADD `attempt` integer DEFAULT 1 NOT NULL;"
     ]
+  },
+  {
+    "name": "20261120075045_modes",
+    "statements": [
+      "ALTER TABLE `runs` ADD `permission_mode` text DEFAULT '' NOT NULL;",
+      "ALTER TABLE `runs` ADD `allowed` text DEFAULT '[]' NOT NULL;",
+      "ALTER TABLE `runs` ADD `awaiting` text DEFAULT '' NOT NULL;"
+    ]
   }
 ];

@@ -1,14 +1,16 @@
 // One turn of a run's Claude Code session kept open while it works: the stage input or the answers written as its first
 // message, the user's messages written in as it runs, an interrupt that halts the current step and leaves the session
-// waiting, and its stream folded into the run's transcript and plain output, saved as it goes. The input is closed once
-// a turn ends with nothing more to say, so the session ends and the runner reads its result.
+// waiting, each tool call the session asks about held for the user to allow or refuse, the permission mode switched on
+// the user's word, and its stream folded into the run's transcript and plain output, saved as it goes. The input is
+// closed once a turn ends with nothing more to say, so the session ends and the runner reads its result.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { randomUUID } from "node:crypto";
 
 import { append_output, read_stream_line, tokens_of_usage, type Run, type StreamResult } from "../shared/runs/model.ts";
-import { add_user_message, close_open_blocks, fold_stream_message, read_transcript, stored_transcript, type UserRole } from "../shared/runs/transcript.ts";
+import { permission_rule, type RunMode } from "../shared/runs/modes.ts";
+import { add_permission, add_user_message, close_open_blocks, fold_stream_message, read_transcript, stored_transcript, waiting_permissions, type PermissionDecision, type UserRole } from "../shared/runs/transcript.ts";
 import type { RunChanges } from "../shared/runs/store.ts";
 import { start_claude_stream, type StreamMessage } from "./claude_stream.ts";
 
@@ -42,6 +44,10 @@ export interface LiveRun {
   send_message: (text: string) => void;
   // Halts the current step at once; the session stays open for the user's next message.
   interrupt: () => Promise<void>;
+  // Answers a tool call the session asked about, with the reason sent back when it is refused.
+  answer_permission: (request_id: string, decision: PermissionDecision, message: string) => void;
+  // Switches the session's permission mode from its next tool call on.
+  set_mode: (mode: RunMode) => Promise<void>;
   // Whether the session still takes messages.
   is_open: () => boolean;
   finished: Promise<LiveRunEnd>;
@@ -65,6 +71,7 @@ export function start_live_run(options: LiveRunOptions): LiveRun {
   let has_lifecycle = false;
   let turn_active = true;
   let interrupt_asked = false;
+  const allowed = new Set(run.allowed);
   let save_timer: NodeJS.Timeout | null = null;
   let last_save = 0;
 
@@ -125,7 +132,31 @@ export function start_live_run(options: LiveRunOptions): LiveRun {
     save_soon();
   }
 
-  const stream = start_claude_stream(options.argv, { cwd: options.cwd, env: options.env, signal: options.signal, on_line });
+  // Each waiting request's whole input, which an allowed call is handed back unchanged.
+  const inputs = new Map<string, Record<string, unknown>>();
+
+  // The tool the user is asked about first, which the board shows while it waits.
+  function save_awaiting(): void {
+    save({ awaiting: waiting_permissions(transcript)[0]?.tool ?? "" });
+    save_now();
+  }
+
+  // A tool call the session asks about waits for the user, unless the user allowed its kind for the whole run.
+  function on_request(request_id: string, request: StreamMessage): boolean {
+    if (request.subtype !== "can_use_tool") return false;
+    const tool = String(request.tool_name ?? "");
+    const input = (request.input ?? {}) as Record<string, unknown>;
+    if (allowed.has(permission_rule(tool, input))) {
+      stream.respond(request_id, { behavior: "allow", updatedInput: input });
+      return true;
+    }
+    add_permission(transcript, { id: request_id, tool, input, reason: String(request.decision_reason ?? request.description ?? "") });
+    inputs.set(request_id, input);
+    save_awaiting();
+    return true;
+  }
+
+  const stream = start_claude_stream(options.argv, { cwd: options.cwd, env: options.env, signal: options.signal, on_line, on_request });
 
   function write(role: UserRole, text: string): void {
     const id = randomUUID();
@@ -142,6 +173,7 @@ export function start_live_run(options: LiveRunOptions): LiveRun {
   const finished = stream.finished.then((exit) => {
     close_open_blocks(transcript);
     transcript.activity = "ended";
+    save({ awaiting: "" });
     save_now();
     return { result, exit_code: exit.exit_code, stderr: exit.stderr };
   });
@@ -159,6 +191,31 @@ export function start_live_run(options: LiveRunOptions): LiveRun {
       }
       interrupt_asked = true;
       await stream.control({ subtype: "interrupt" });
+    },
+    answer_permission: (request_id, decision, message) => {
+      const entry = waiting_permissions(transcript).find((each) => each.id === request_id);
+      if (!entry || !stream.is_open()) throw new Error("that request is no longer waiting");
+      const input = inputs.get(request_id) ?? entry.input;
+      inputs.delete(request_id);
+      entry.decision = decision;
+      if (decision === "denied") {
+        entry.message = message.trim();
+        stream.respond(request_id, { behavior: "deny", message: message.trim() || "The user refused this; do not try it again another way." });
+      } else {
+        stream.respond(request_id, { behavior: "allow", updatedInput: input });
+      }
+      if (decision === "allowed_for_run") {
+        allowed.add(permission_rule(entry.tool, input));
+        save({ allowed: [...allowed] });
+      }
+      save_awaiting();
+    },
+    set_mode: async (mode) => {
+      if (!stream.is_open()) throw new Error("the run's session has ended");
+      await stream.control({ subtype: "set_permission_mode", mode });
+      transcript.mode = mode;
+      save({ permission_mode: mode });
+      save_now();
     },
     is_open: stream.is_open,
     finished,

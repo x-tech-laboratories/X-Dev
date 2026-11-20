@@ -23,7 +23,7 @@ export function is_send_back(stage_ids: string[], from: string, to: string): boo
 
 // ── Board ────────────────────────────────────────────────────────────────────
 
-const done_stage: Stage = { id: done, label: "Done", description: "Items that have been through every stage.", order: 0, next: done, model: "", effort: "", gates: [], max_proposals: 0, paths: [], tools: [], disallowed_tools: [], prompt: "" };
+const done_stage: Stage = { id: done, label: "Done", description: "Items that have been through every stage.", order: 0, next: done, model: "", effort: "", mode: "", gates: [], max_proposals: 0, paths: [], tools: [], disallowed_tools: [], prompt: "" };
 
 interface StageColumn extends BoardColumn {
   stage: Stage;

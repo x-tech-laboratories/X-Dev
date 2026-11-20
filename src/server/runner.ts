@@ -23,6 +23,7 @@ import { tools_guide, type RunTools } from "./run_tools.ts";
 import { start_live_run, type LiveRun } from "./live_run.ts";
 import { can_retry, previous_attempt_section } from "../shared/runs/attempts.ts";
 import { steer_decisions } from "../shared/runs/steering.ts";
+import { is_run_mode, starting_mode } from "../shared/runs/modes.ts";
 import type { UserRole } from "../shared/runs/transcript.ts";
 
 // ── Options ──────────────────────────────────────────────────────────────────
@@ -211,7 +212,10 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       "stream-json",
       "--replay-user-messages",
       "--permission-mode",
-      settings.permission_mode,
+      run.permission_mode || settings.permission_mode,
+      // Tool calls the mode does not settle are asked of X-Dev over the stream, which asks the user.
+      "--permission-prompt-tool",
+      "stdio",
     ];
     // The run's own tools are reached through these, never through an MCP config, which a managed one refuses.
     const env = { ...process.env, X_DEV_RUN_URL: run_tools.url(), X_DEV_RUN_TOKEN: token };
@@ -280,6 +284,7 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       status_before: JSON.stringify(item.status),
       input,
       started_at: now(),
+      permission_mode: starting_mode(options.mode, stage.mode, read_settings().permission_mode),
       ...(retry ? { retry_of: retry.of.id, attempt: retry.of.attempt + 1 } : {}),
     });
     // A run sent to another stage moves the item there.
@@ -337,13 +342,18 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       change(run_id, { interjections: [...run.interjections, { text: message, at: now() }] });
     },
     interrupt_run: (run_id) => live_of(run_id).interrupt(),
+    set_run_mode: async (run_id, mode) => {
+      if (!is_run_mode(mode)) throw new Error(`"${mode}" is not a permission mode`);
+      await live_of(run_id).set_mode(mode);
+    },
+    answer_permission: (run_id, request_id, decision, message) => live_of(run_id).answer_permission(request_id, decision, message),
     retry_run: async (run_id, options) => {
       const run = find_run(database(), run_id);
       if (!can_retry(run)) throw new Error(run.state === "failed" ? "that run waits on its pull request's checks, which clear by themselves" : "only a failed or stopped run can be retried");
       const latest = database().prepare("SELECT id FROM runs WHERE item_id = ? AND stage = ? AND state != 'discarded' ORDER BY started_at DESC LIMIT 1").get(run.item_id, run.stage) as { id: string } | undefined;
       if (latest?.id !== run_id) throw new Error("only the stage's latest run can be retried");
       if (options.clean) await methods.discard_run(run_id);
-      return start_run(run.item_id, { stage: run.stage, ...(options.model ? { model: options.model } : {}) }, { of: run, tell_previous: !options.clean });
+      return start_run(run.item_id, { stage: run.stage, ...(options.model ? { model: options.model } : {}), ...(options.mode ? { mode: options.mode } : {}) }, { of: run, tell_previous: !options.clean });
     },
     answer_run: (run_id, answers) => {
       require_free();

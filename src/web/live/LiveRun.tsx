@@ -9,10 +9,12 @@ import { format_duration } from "@x-tech-laboratories/x-libs/durations";
 import { format_count } from "@x-tech-laboratories/x-libs/web/format";
 import { Badge, StateBadge } from "@x-tech-laboratories/x-libs/web/react/badges";
 import { FollowingOutput } from "@x-tech-laboratories/x-libs/web/react/following";
+import { Select } from "@x-tech-laboratories/x-libs/web/react/controls";
 import { FormGroup, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout";
 
 import { can_retry } from "../../shared/runs/attempts.ts";
 import type { Run } from "../../shared/runs/model.ts";
+import { mode_of_session, run_mode_labels, run_modes, type RunMode } from "../../shared/runs/modes.ts";
 import { read_transcript } from "../../shared/runs/transcript.ts";
 import { data_watch, page, succeeds } from "../api.ts";
 import { run_state_labels } from "../items/words.ts";
@@ -86,6 +88,13 @@ function MessageBox({ run_id, paused }: { run_id: string; paused: boolean }) {
   );
 }
 
+// The run's permission mode, switched while its session is open.
+function ModeSwitch({ run_id, mode }: { run_id: string; mode: RunMode | "" }) {
+  const { runner } = page();
+  const options: [RunMode | "", string][] = [...(mode ? [] : [["", "Another mode"] as [RunMode | "", string]]), ...run_modes.map((each): [RunMode, string] => [each, run_mode_labels[each]])];
+  return <Select<RunMode | ""> label="Permission mode" options={options} value={mode} on_change={(next) => void (next && succeeds(() => runner!.set_run_mode(run_id, next)))} />;
+}
+
 // ── View ─────────────────────────────────────────────────────────────────────
 
 interface LiveRunProps {
@@ -106,6 +115,9 @@ export function LiveRun({ run, stage_label, is_latest, standalone = true }: Live
   const now = use_now(running);
   const elapsed = Math.max(0, Math.round(((run.ended_at ? Date.parse(run.ended_at) : now) - Date.parse(run.started_at)) / 1000));
   const model = transcript.model || run.model || "Default model";
+  const mode = mode_of_session(transcript.mode || run.permission_mode);
+  const mode_control = runner && session_open ? <ModeSwitch run_id={run.id} mode={mode} /> : mode && <span className="small muted">{run_mode_labels[mode]}</span>;
+  const awaiting = running && run.awaiting ? <Badge tone="warn">Waiting for approval: {run.awaiting}</Badge> : null;
 
   return (
     <div className="live-run">
@@ -114,7 +126,9 @@ export function LiveRun({ run, stage_label, is_latest, standalone = true }: Live
           <div className="inline-row">
             <StateBadge labels={run_state_labels} state={run.state} />
             {paused && <Badge tone="warn">Halted, waiting for your message</Badge>}
+            {awaiting}
             <span className="small">{model}</span>
+            {mode_control}
             <span className="small muted">{format_duration(elapsed)}</span>
             {run.input_tokens + run.output_tokens > 0 && (
               <span className="small muted">
@@ -129,17 +143,21 @@ export function LiveRun({ run, stage_label, is_latest, standalone = true }: Live
           </Toolbar>
         </div>
       ) : (
-        (running || paused) && (
+        running && (
           <div className="inline-row">
             {paused && <Badge tone="warn">Halted, waiting for your message</Badge>}
+            {awaiting}
             <span className="small muted">
               {model} · {format_duration(elapsed)}
             </span>
+            {mode_control}
           </div>
         )
       )}
       {run.transcript ? (
-        <TranscriptView entries={transcript.entries} dropped={transcript.dropped} live={running} empty_text="The agent has not started yet." user_labels={{ input: `What ${stage_label} was given` }} />
+        <TranscriptView entries={transcript.entries} dropped={transcript.dropped} live={running} empty_text="The agent has not started yet." user_labels={{ input: `What ${stage_label} was given` }}
+          on_permission={runner && session_open ? (request_id, decision, message) => void succeeds(() => runner.answer_permission(run.id, request_id, decision, message)) : undefined}
+        />
       ) : (
         <FollowingOutput text={run.output || "Nothing yet."} active={running} toggle />
       )}

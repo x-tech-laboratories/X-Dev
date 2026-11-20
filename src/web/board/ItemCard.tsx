@@ -26,6 +26,8 @@ import { RunDialog } from "./RunDialog.tsx";
 import { RunningButtons } from "../live/LiveRun.tsx";
 import { confirm_retry_from_clean } from "../live/RetryButton.tsx";
 import { TranscriptDialog } from "../live/TranscriptDialog.tsx";
+import { mode_option, ModePicker } from "../live/ModePicker.tsx";
+import type { RunMode } from "../../shared/runs/modes.ts";
 
 // ── Gates ────────────────────────────────────────────────────────────────────
 
@@ -99,9 +101,10 @@ export function confirm_send_back(item: Item, stage: Stage): void {
 function ModelDialog({ item, stage, runs, retry_of, on_close }: { item: Item; stage: Stage; runs: StageRun[]; retry_of?: string; on_close: () => void }) {
   const { runner } = page();
   const [model, set_model] = useState("");
+  const [mode, set_mode] = useState<RunMode | "">("");
   const warning = review_model_warning(stage.id, model.trim() || stage.model, runs);
   async function run(): Promise<void> {
-    const chosen = model.trim() ? { model: model.trim() } : {};
+    const chosen = { ...(model.trim() ? { model: model.trim() } : {}), ...mode_option(mode) };
     if (await succeeds(() => (retry_of ? runner!.retry_run(retry_of, chosen) : runner!.start_run(item.id, { stage: stage.id, ...chosen })))) {
       data_watch.bump();
       on_close();
@@ -125,6 +128,9 @@ function ModelDialog({ item, stage, runs, retry_of, on_close }: { item: Item; st
     >
       <FormRow label="Model for this run" id="run-model">
         <ComboField label="Model for this run" placeholder={stage.model ? `${stage.model}, as the stage says` : "The stage's model"} value={model} options={model_suggestions} on_change={set_model} />
+      </FormRow>
+      <FormRow label="Permission mode" id="run-mode">
+        <ModePicker stage_mode={stage.mode} value={mode} on_change={set_mode} />
       </FormRow>
       {warning && (
         <p className="tone-warn" role="status">
@@ -231,7 +237,8 @@ export function item_href(item: Item, stage: Stage | undefined, runs: StageRun[]
 // The edge a card takes for a run that failed or waits for answers.
 export function card_tone(stage: Stage | undefined, runs: StageRun[]): string | undefined {
   const state = stage_run(stage, runs)?.state;
-  return state === "failed" ? "tone-edge-bad" : state === "waiting" ? "tone-edge-warn" : undefined;
+  const run = stage_run(stage, runs);
+  return state === "failed" ? "tone-edge-bad" : state === "waiting" || (state === "running" && run?.awaiting) ? "tone-edge-warn" : undefined;
 }
 
 export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: ItemCardProps) {
@@ -243,6 +250,8 @@ export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: I
   const can_start = Boolean(runner && stage) && can_run && !item.closed_at && item.stage !== proposed && item.stage !== done && !busy;
   // A failed or stopped run at the item's stage is retried rather than run afresh.
   const retry_of = run?.retryable ? run.run_id : undefined;
+  // A running run held on a tool call the user must allow or refuse.
+  const awaiting = run?.state === "running" && run.awaiting !== "";
   const warning = can_start && stage ? review_model_warning(stage.id, stage.model, runs) : "";
   const counts = run ? changes[run.run_id] : undefined;
   // A run its gates held back says so in its gate chips, so the card keeps its report's summary.
@@ -287,7 +296,12 @@ export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: I
       {run ? (
         <>
           <div className="card-run">
-            <StatusPill tone={run_state_labels[run.state][1]} busy={run.state === "running"} label={run.attempt > 1 ? `${run_state_labels[run.state][0]}, attempt ${run.attempt}` : run_state_labels[run.state][0]} />
+            <StatusPill
+              tone={awaiting ? "warn" : run_state_labels[run.state][1]}
+              busy={run.state === "running" && !awaiting}
+              label={`${awaiting ? "Waiting for approval" : run_state_labels[run.state][0]}${run.attempt > 1 ? `, attempt ${run.attempt}` : ""}`}
+              title={awaiting ? `${run.awaiting} waits for your approval` : undefined}
+            />
             {run.state === "failed" && run.error && !held_by_gates ? <span className="tone-bad card-line">{run.error.split("\n")[0]}</span> : run.summary && <span className="card-line">{run.summary}</span>}
           </div>
           <div className="card-meta muted">

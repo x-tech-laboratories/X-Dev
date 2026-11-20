@@ -44,6 +44,8 @@ function fake_page(with_runner = true) {
     interject_run: vi.fn(),
     interrupt_run: vi.fn(async () => undefined),
     retry_run: vi.fn(async () => "run-2"),
+    set_run_mode: vi.fn(async () => undefined),
+    answer_permission: vi.fn(),
     answer_run: vi.fn(),
     discard_run: vi.fn(async () => undefined),
     link_issue: vi.fn(async () => ({ number: 12, opened: true })),
@@ -400,6 +402,61 @@ describe("retrying a stage", () => {
 
     expect(await screen.findByRole("button", { name: "Run Plan" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+});
+
+describe("a run's permissions", () => {
+  const asking = (mode: string) =>
+    JSON.stringify({
+      model: "claude-opus-5",
+      mode,
+      activity: "working",
+      dropped: 0,
+      entries: [
+        { kind: "permission", id: "p1", tool: "Bash", input: { command: "npm install left-pad" }, reason: "It installs a package." },
+        { kind: "permission", id: "p0", tool: "Write", input: { file_path: "a.ts", content: "x" }, reason: "", decision: "denied", message: "Not there." },
+      ],
+    });
+
+  it("shows a tool call waiting for approval, and allows, allows for the run or denies it with a reason", async () => {
+    const { database, store, runner } = fake_page();
+    const id = store.save_item(item);
+    const run = add_run(database, id, { state: "running", transcript: asking("default"), awaiting: "Bash" });
+    render(<App />);
+    go(`#/items/${id}`);
+
+    const request = await screen.findByRole("group", { name: "Bash waits for approval" });
+    expect(within(request).getByText("It installs a package.")).toBeTruthy();
+    expect(screen.getByText("Waiting for approval: Bash")).toBeTruthy();
+    expect(screen.getByText("Reason given: Not there.")).toBeTruthy();
+    fireEvent.click(within(request).getByRole("button", { name: "Allow" }));
+    await waitFor(() => expect(runner.answer_permission).toHaveBeenCalledWith(run, "p1", "allowed", ""));
+    fireEvent.click(within(request).getByRole("button", { name: "Allow npm commands for This Run" }));
+    await waitFor(() => expect(runner.answer_permission).toHaveBeenCalledWith(run, "p1", "allowed_for_run", ""));
+    fireEvent.change(within(request).getByLabelText("Why Bash is refused"), { target: { value: "No new packages." } });
+    fireEvent.click(within(request).getByRole("button", { name: "Deny" }));
+    await waitFor(() => expect(runner.answer_permission).toHaveBeenCalledWith(run, "p1", "denied", "No new packages."));
+  });
+
+  it("switches the mode of a running run, and starts a run in a mode picked for it", async () => {
+    const { database, store, runner } = fake_page();
+    const id = store.save_item(item);
+    const run = add_run(database, id, { state: "running", transcript: asking("manual") });
+    render(<App />);
+    go(`#/items/${id}`);
+
+    const mode = await screen.findByRole("combobox", { name: "Permission mode" });
+    expect((mode as HTMLSelectElement).value).toBe("default");
+    fireEvent.change(mode, { target: { value: "auto" } });
+    await waitFor(() => expect(runner.set_run_mode).toHaveBeenCalledWith(run, "auto"));
+
+    update_run(database, run, { state: "done" });
+    cleanup();
+    render(<App />);
+    go(`#/items/${id}`);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Permission mode for this run" }), { target: { value: "acceptEdits" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run Plan" }));
+    await waitFor(() => expect(runner.start_run).toHaveBeenCalledWith(id, { stage: "plan", mode: "acceptEdits" }));
   });
 });
 

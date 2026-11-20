@@ -17,6 +17,7 @@ const setting_of: Record<NoticeKind, keyof DesktopSettings> = {
   run_finished: "notify_run_finished",
   run_failed: "notify_run_failed",
   run_asked: "notify_run_asked",
+  run_approval: "notify_run_approval",
   run_proposed: "notify_run_proposed",
   checks_finished: "notify_checks_finished",
 };
@@ -39,6 +40,7 @@ interface RunRow {
   report: string;
   error: string;
   questions: string;
+  awaiting: string;
 }
 
 function snapshot_of(row: RunRow): RunSnapshot {
@@ -55,7 +57,7 @@ export function watch_run_notices({ database, notifier, settings, stage_label }:
   function read(): RunSnapshot[] {
     const ids = [...seen.keys()];
     const rows = database()
-      .prepare(`SELECT runs.id, runs.item_id, items.title AS item_title, runs.stage, runs.state, runs.proposals, runs.report, runs.error, runs.questions FROM runs JOIN items ON items.id = runs.item_id WHERE runs.state = 'running'${ids.length ? ` OR runs.id IN (${ids.map(() => "?").join(", ")})` : ""}`)
+      .prepare(`SELECT runs.id, runs.item_id, items.title AS item_title, runs.stage, runs.state, runs.proposals, runs.report, runs.error, runs.questions, runs.awaiting FROM runs JOIN items ON items.id = runs.item_id WHERE runs.state = 'running'${ids.length ? ` OR runs.id IN (${ids.map(() => "?").join(", ")})` : ""}`)
       .all(...ids) as unknown as RunRow[];
     return rows.map(snapshot_of);
   }

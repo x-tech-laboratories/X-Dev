@@ -1,6 +1,6 @@
 // A Claude Code session driven over its stream-json protocol, as `claude -p --input-format stream-json` speaks it: user
-// messages written to its input at any time, control requests such as an interrupt answered by id, and every other line
-// it prints handed on whole and parsed.
+// messages written to its input at any time, control requests such as an interrupt answered by id, the session's own
+// requests, such as asking whether a tool may run, answered back, and every other line it prints handed on whole and parsed.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
@@ -18,6 +18,8 @@ export interface ClaudeStreamOptions {
   signal?: AbortSignal;
   // Each line the session prints, with its JSON when it is JSON; answers to this side's control requests are kept back.
   on_line: (line: string, message: StreamMessage | null) => void;
+  // A request from the session, such as can_use_tool, answered later through respond; any it does not take is refused.
+  on_request?: (request_id: string, request: StreamMessage) => boolean;
 }
 
 export interface ClaudeStream {
@@ -25,6 +27,8 @@ export interface ClaudeStream {
   send_user: (text: string, id: string) => void;
   // Sends a control request, such as {subtype: "interrupt"}, and settles with the session's answer.
   control: (request: StreamMessage) => Promise<StreamMessage>;
+  // Answers one of the session's own requests.
+  respond: (request_id: string, response: StreamMessage) => void;
   // Closes the input, after which the session ends once its turn is over.
   end_input: () => void;
   is_open: () => boolean;
@@ -57,6 +61,12 @@ export function start_claude_stream(argv: readonly string[], options: ClaudeStre
       else waiter.resolve((response.response ?? {}) as StreamMessage);
       return;
     }
+    if (message?.type === "control_request") {
+      const request_id = String(message.request_id ?? "");
+      const taken = options.on_request?.(request_id, (message.request ?? {}) as StreamMessage) ?? false;
+      if (!taken) program.write_line(JSON.stringify({ type: "control_response", response: { subtype: "error", request_id, error: "X-Dev does not answer this request" } }));
+      return;
+    }
     options.on_line(line, message);
   }
 
@@ -83,6 +93,7 @@ export function start_claude_stream(argv: readonly string[], options: ClaudeStre
         waiting.set(request_id, { resolve, reject, timer });
         program.write_line(JSON.stringify({ type: "control_request", request_id, request }));
       }),
+    respond: (request_id, response) => program.write_line(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id, response } })),
     end_input: program.end_input,
     is_open: program.is_open,
     finished,

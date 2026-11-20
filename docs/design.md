@@ -74,6 +74,22 @@ nothing else; the user discards it or retries it.
   **Interrupt** halts the current step without ending the session, which then waits, holding the run
   slot, for the user's next message. Neither asks first.
 
+### Permission modes
+
+- A run works in one of three modes: **Auto** (`auto`) checks each tool call with no one watching,
+  **Edit automatically** (`acceptEdits`) lets file edits in the worktree through and asks the user for
+  the rest, and **Manual** (`default`) asks the user for every call that is not plainly safe. There is
+  no Plan mode, since Plan is a stage.
+- A stage file sets its default with `x-dev-mode`, edited in Settings → Stages beside model and
+  effort; without it the runner's setting applies. Run, Retry and the card's model dialog pick a mode
+  for one run beside the model, and the transcript's header switches the mode of a running session.
+- A tool call the session asks about shows in the transcript with the tool, its input (an edit as a
+  diff, a command as code) and Claude Code's reason, and **Allow**, **Allow … for This Run** (the tool,
+  or for a command the program it starts) or **Deny** with an optional reason the agent reads. While
+  one waits, the run shows **Waiting for approval** on its card and item page, a notification says so,
+  and it keeps the run slot. A run that ends while one waits refuses it.
+- A stage's `tools` and `disallowedTools` and X-Dev's gates apply in every mode.
+
 ### Retrying
 
 - A run that failed, was held by a gate or was stopped offers **Retry** in place of Run, on the card,
@@ -211,6 +227,7 @@ x-dev-next: extract     # the stage that normally follows
 x-dev-label: Implement  # the name the page shows
 x-dev-gates: [worktree, tests-kept, tests-pass, types-lint, coverage, commits, secrets, leftovers, comments, size, x-libs, dependencies]
 x-dev-paths: ["**"]     # what the stage may change; Specify has ["tests/**"]
+x-dev-mode: acceptEdits # its runs' permission mode; left out for the runner's setting
 ```
 
 The Stages section of Settings lists them in order and edits each one in a dialog: its name, model,
@@ -242,7 +259,8 @@ Agent backends are provider plugins (`agent_backend`). The bundled one runs Clau
 
 ```
 claude -p --agents <run>/agents.json --agent stage-<id> --session-id <uuid> --output-format stream-json
-  --verbose --include-partial-messages --input-format stream-json --replay-user-messages --permission-mode auto
+  --verbose --include-partial-messages --input-format stream-json --replay-user-messages --permission-mode <mode>
+  --permission-prompt-tool stdio
 ```
 
 in the item's worktree. It runs on the user's own Claude login.
@@ -255,8 +273,15 @@ in the item's worktree. It runs on the user's own Claude login.
   first user message, the user's messages are written in as it runs, each with an id the session
   echoes once it has read it, and `command_lifecycle` lines say when each is finished with. A
   `control_request` of subtype `interrupt` halts the current step and is answered by a
-  `control_response`. X-Dev closes the input once a turn's `result` arrives with no message of its own
-  still waiting and the run not halted, and the session then ends.
+  `control_response`, and one of subtype `set_permission_mode` switches the mode. X-Dev closes the
+  input once a turn's `result` arrives with no message of its own still waiting and the run not
+  halted, and the session then ends.
+- With `--permission-prompt-tool stdio`, a tool call the mode does not settle comes to X-Dev as a
+  `control_request` of subtype `can_use_tool` with the tool, its input and a reason, and is answered by
+  a `control_response` of `{"behavior": "allow", "updatedInput": …}` or `{"behavior": "deny",
+  "message": …}`. This works with no MCP config, which a managed one refuses. The Claude Agent SDK
+  speaks the same protocol, but its licence is Anthropic's own terms rather than one GPL-3.0-or-later
+  can take in, so X-Dev speaks it itself.
 - Output carries `stream_event` lines with the blocks' partial pieces (`thinking_delta`, `text_delta`,
   `input_json_delta`), whole `assistant` and `user` messages, and one `result` per turn with the
   final text, `is_error` and the session's cost so far; the report block is read from the last
@@ -267,8 +292,8 @@ in the item's worktree. It runs on the user's own Claude login.
   `--mcp-config`, so X-Dev's run tools are not an MCP server: they are a small HTTP server on
   127.0.0.1 that the agent calls with curl, the address and the run's token in its environment
   (`X_DEV_RUN_URL`, `X_DEV_RUN_TOKEN`) and the way to call them added to every run's input.
-- The permission mode is a setting, `auto` unless set, so every action is checked with no one
-  watching.
+- The mode is the run's own, else the stage's `x-dev-mode`, else the runner's setting, `auto` unless
+  set (see [Permission modes](#permission-modes)).
 
 This is a written exception to "a daemon never shells out": Claude Code has no Node API that uses the
 user's login, and `git worktree` has none either. GitHub is reached through the `gh` program the user
@@ -344,8 +369,8 @@ Other backends, such as OpenCode, can be added as plugins later.
 - **History**, the last row of the sidebar's list after Items, Runs and Repositories, and **Settings** in the sidebar's foot with Stages, GitHub (signing `gh` in and out) and Runs, then the standard
   Sync, Backups, Notifications, Import and export, Plugins, Users and Tokens.
 
-Notifications: a run finished, failed, asked questions or made proposals; a pull request's checks
-finished.
+Notifications: a run finished, failed, asked questions, waits for a tool call's approval or made
+proposals; a pull request's checks finished.
 
 ## Platforms and daemon
 
@@ -412,6 +437,14 @@ five cents in all, through a Node script that spoke the protocol the runner spea
   after a `[Request interrupted by user for tool use]` user message, and the session stays open: the
   next message is answered as usual.
 - Each `result`'s `total_cost_usd` is the session's cost so far, not the turn's.
+- With `--permission-mode default` (Claude Code also calls it `manual`) and
+  `--permission-prompt-tool stdio`, each Bash and Write call arrived as a `can_use_tool` request with
+  the tool, input, `decision_reason` and `permission_suggestions`; an allow ran it, and a deny's
+  message reached the agent, which reported it. No MCP config was given or needed.
+- `set_permission_mode` to `acceptEdits` mid-session was answered with the new mode: the next Write
+  in the repository ran without asking while a Bash call still asked; switched to `auto`, the next
+  Bash call ran without asking. A Write under a `.claude` folder outside `.claude/worktrees` asks in
+  every mode, Claude Code counting it sensitive.
 
 ## Checked for milestone 5
 

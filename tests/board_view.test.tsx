@@ -398,3 +398,16 @@ describe("a card's live run", () => {
   });
 });
 
+describe("a card's run waiting for approval", () => {
+  it("says so on the card, with the tool it waits on", async () => {
+    const { database, store } = fake_page({ running: true });
+    const id = store.save_item({ title: "Swimlanes", repository: "x-tech-laboratories/X-Dev", stage: "implement" });
+    add_run(database, id, "implement", { state: "running", awaiting: "Bash" });
+    render(<App />);
+
+    const found = await card("Swimlanes");
+    expect(within(found).getByText("Waiting for approval")).toBeTruthy();
+    expect(board_card("Swimlanes").className).toContain("tone-edge-warn");
+  });
+});
+

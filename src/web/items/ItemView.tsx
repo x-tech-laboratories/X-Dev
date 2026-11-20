@@ -22,6 +22,8 @@ import { done, model_suggestions, type Stage } from "../../shared/stages/model.t
 import { calls, data_watch, page, succeeds, use_data } from "../api.ts";
 import { DialogButtons } from "../forms.tsx";
 import { LiveRun, RunningButtons } from "../live/LiveRun.tsx";
+import { mode_option, ModePicker } from "../live/ModePicker.tsx";
+import type { RunMode } from "../../shared/runs/modes.ts";
 import { confirm_retry_from_clean, RetryButton } from "../live/RetryButton.tsx";
 import { read_transcript } from "../../shared/runs/transcript.ts";
 import { BranchChanges } from "./BranchChanges.tsx";
@@ -101,9 +103,10 @@ function RunControls({ item, stages, runs, busy }: { item: Item; stages: Stage[]
   const { runner } = page();
   const [stage_id, set_stage_id] = useState(item.stage === done || item.stage === "proposed" ? (stages[0]?.id ?? "") : item.stage);
   const [model, set_model] = useState("");
+  const [mode, set_mode] = useState<RunMode | "">("");
   const stage = stages.find((each) => each.id === stage_id);
   const warning = review_model_warning(stage_id, model.trim() || stage?.model || "", runs);
-  const chosen_model = model.trim() ? { model: model.trim() } : {};
+  const chosen_model = { ...(model.trim() ? { model: model.trim() } : {}), ...mode_option(mode) };
   // The stage's latest run, which the primary button retries when it failed or was stopped.
   const latest = runs.find((run) => run.stage === stage_id && run.state !== "discarded");
   const retryable = latest && can_retry(latest) ? latest : undefined;
@@ -116,12 +119,13 @@ function RunControls({ item, stages, runs, busy }: { item: Item; stages: Stage[]
     <Toolbar>
       <Select<string> label="Stage to run" options={stages.map((each): [string, string] => [each.id, each.id === item.stage ? `${each.label} (current)` : each.label])} value={stage_id} on_change={set_stage_id} />
       <ComboField label="Model for this run" placeholder={stage?.model ? `${stage.model}, as the stage says` : "The stage's model"} value={model} options={model_suggestions} on_change={set_model} />
+      <ModePicker stage_mode={stage?.mode ?? ""} value={mode} on_change={set_mode} />
       {retryable ? (
         <>
           <button type="button" className="accent solid" disabled={busy} title={busy ? "A run is under way" : "Run the stage again on the worktree as the last run left it, telling it what went wrong"} onClick={() => void succeeds(() => runner.retry_run(retryable.id, chosen_model)).then(() => data_watch.bump())}>
             Retry {stage?.label ?? "Stage"}
           </button>
-          <button type="button" disabled={busy} onClick={() => confirm_retry_from_clean(retryable.id, stage?.label ?? "the stage", chosen_model.model)}>
+          <button type="button" disabled={busy} onClick={() => confirm_retry_from_clean(retryable.id, stage?.label ?? "the stage", chosen_model)}>
             Retry from Clean…
           </button>
         </>

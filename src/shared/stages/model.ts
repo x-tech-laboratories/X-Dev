@@ -1,5 +1,9 @@
 // What a stage is and how its fields are checked, apart from the files that hold stages, so the page shares the rules.
 
+// ── Imports ──────────────────────────────────────────────────────────────────
+
+import { is_run_mode, run_modes, type RunMode } from "../runs/modes.ts";
+
 // ── Shapes ───────────────────────────────────────────────────────────────────
 
 export const efforts = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -51,6 +55,8 @@ export interface Stage {
   // Empty for the backend's own default.
   model: string;
   effort: Effort | "";
+  // The permission mode its runs start in; empty for the runner's setting.
+  mode: RunMode | "";
   gates: string[];
   // How many new items a run may propose; 0 for no limit.
   max_proposals: number;
@@ -129,6 +135,7 @@ export function check_stage(input: StageInput, other_ids: string[]): StageInput 
   if (next !== done && !other_ids.includes(next)) throw new Error(`the next stage, ${next}, does not exist`);
   if (next === id) throw new Error("a stage cannot come after itself");
   if (input.effort && !efforts.includes(input.effort)) throw new Error(`"${input.effort}" is not an effort: use ${efforts.join(", ")}`);
+  if (input.mode && !is_run_mode(input.mode)) throw new Error(`"${input.mode}" is not a permission mode: use ${run_modes.join(", ")}`);
   const gates = clean_list(input.gates);
   const unknown_gate = gates.find((gate) => !gate_names.includes(gate));
   if (unknown_gate) throw new Error(`"${unknown_gate}" is not a gate`);
@@ -142,6 +149,7 @@ export function check_stage(input: StageInput, other_ids: string[]): StageInput 
     next,
     model: input.model.trim(),
     effort: input.effort,
+    mode: input.mode,
     gates,
     max_proposals: input.max_proposals,
     paths: clean_list(input.paths),

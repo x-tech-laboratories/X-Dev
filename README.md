@@ -43,7 +43,10 @@ What it does so far:
   **Stop** ends the run. Every run keeps its transcript, tokens, cost and report; the latest can be discarded, which
   puts the worktree, the status sheet and the stage back as they were. A run that failed or was stopped offers
   **Retry**, which runs the stage again on the worktree as it was left and tells the agent how the last attempt ended,
-  or **Retry from Clean**, which discards the run first. The **Runs** page lists every
+  or **Retry from Clean**, which discards the run first. A run's permission mode is **Auto**, **Edit automatically** or
+  **Manual**: the stage's by default, picked for one run beside the model, or switched while it runs; in the last two a
+  tool call waits in the transcript for **Allow**, **Allow for This Run** or **Deny**, and the run shows as waiting for
+  approval with a notification. The **Runs** page lists every
   run across items, filtered by words and state, under their tokens and cost summed by stage and by model; a row opens
   its item at that run. The item's page shows its branch's changes since its work started, file by file.
 - **Gates:** once a run hands in its report, X-Dev checks the change itself, by the gates the stage file names: the
@@ -115,7 +118,8 @@ them. A dev run (`npm run dev`, `npm run dev:server`) keeps its own stages under
 Runs start from the desktop app, whose daemon holds the checkouts. On the **Repositories** page choose each checkout's
 folder, or type it in a browser; an item's first run makes its worktree there, at
 `.claude/worktrees/item-<issue or id>` on the branch `worktree-item-<issue or id>`, from the latest default branch.
-**Settings → Pipeline → Runs** sets how the agents' actions are approved (auto, checking each one, unless set), the
+**Settings → Pipeline → Runs** sets how the agents' actions are approved where neither the stage nor the run picks a
+mode (auto, checking each one, unless set), the
 `claude` program, and the small model that fills in described items.
 
 Each run is `claude -p` with the stage as its agent, talking stream-json both ways: the run's input is its first message,
