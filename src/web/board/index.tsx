@@ -77,6 +77,8 @@ export function ItemsBoard({ items, has_items, stages: stage_list, show_done, by
   return (
     <Board<Item, StageColumn>
       label="Board"
+      class_name="fills"
+      phone_hide_empty
       columns={columns}
       lanes={lanes}
       lane_heading="Repository"

@@ -169,7 +169,7 @@ export function Inbox() {
   const proposals = use_data((api) => api.list_proposals());
   const waiting = proposals.data ?? [];
   return (
-    <Section class_name="inbox-panel" level={3} title={<>Inbox <span className="group-count">{format_count(waiting.length)}</span></>}>
+    <Section class_name="inbox-panel compact" level={3} title={<>Inbox <span className="group-count">{format_count(waiting.length)}</span></>}>
       {waiting.length > 0 && <ul className="inbox">
         {waiting.map((proposal) => (
           <li key={proposal.id}>
