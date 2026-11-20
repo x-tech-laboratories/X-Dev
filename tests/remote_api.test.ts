@@ -47,6 +47,8 @@ function fake_runner() {
     interject_run: vi.fn(),
     interrupt_run: vi.fn(async () => undefined),
     retry_run: vi.fn(async () => "run-2"),
+    set_run_mode: vi.fn(async () => undefined),
+    answer_permission: vi.fn(),
   } satisfies Record<keyof RunnerMethods, unknown>;
 }
 
@@ -155,6 +157,25 @@ describe("the remote runner", () => {
     expect(runner.start_run).toHaveBeenCalledWith("item-1", {});
     expect(runner.answer_run).toHaveBeenCalledWith("run-1", "Yes.");
     expect(() => remote.set_runner_setting("claude_program", "/bin/sh")).toThrow("only from X-Dev on the computer that runs the agents");
+  });
+});
+
+describe("the remote runner's permission modes", () => {
+  it("takes Manual from elsewhere but refuses a looser mode or allowing a tool for the whole run", async () => {
+    const runner = fake_runner();
+    const remote = remote_runner(runner as unknown as RunnerMethods);
+
+    await remote.start_run("item-1", { mode: "default" });
+    await remote.retry_run("run-1", { mode: "default" });
+    await remote.set_run_mode("run-1", "default");
+    remote.answer_permission("run-1", "p1", "allowed", "");
+    expect(runner.start_run).toHaveBeenCalledWith("item-1", { mode: "default" });
+    expect(runner.answer_permission).toHaveBeenCalledWith("run-1", "p1", "allowed", "");
+
+    expect(() => remote.start_run("item-1", { mode: "auto" })).toThrow("picked only from X-Dev on the computer that runs the agents");
+    expect(() => remote.retry_run("run-1", { mode: "acceptEdits" })).toThrow("Manual can be picked from here");
+    expect(() => remote.set_run_mode("run-1", "auto")).toThrow("the auto permission mode");
+    expect(() => remote.answer_permission("run-1", "p1", "allowed_for_run", "")).toThrow("allow this call alone from here");
   });
 });
 

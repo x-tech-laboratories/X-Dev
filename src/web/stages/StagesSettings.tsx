@@ -1,4 +1,4 @@
-// The Stages section of Settings: every stage in pipeline order with its model, effort and next stage, each edited in a
+// The Stages section of Settings: every stage in pipeline order with its model, effort, permission mode and next stage, each edited in a
 // dialog that writes its stage file back, and the default stages added where they are missing.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
@@ -14,6 +14,7 @@ import { ComboField } from "@x-tech-laboratories/x-libs/web/react/suggestions";
 import { DataTable, type TableColumn } from "@x-tech-laboratories/x-libs/web/react/table";
 import { toast } from "@x-tech-laboratories/x-libs/web/react/toasts";
 
+import { run_mode_labels, run_modes, type RunMode } from "../../shared/runs/modes.ts";
 import { default_max_proposals, done, efforts, gate_names, model_suggestions, tool_suggestions, type Effort, type Stage, type StageInput, type StagesMethods } from "../../shared/stages/model.ts";
 import { attempt, data_watch, succeeds } from "../api.ts";
 import { DialogButtons } from "../forms.tsx";
@@ -22,7 +23,7 @@ import { confirm_delete, row_actions_column } from "../rows.tsx";
 // ── Dialog ───────────────────────────────────────────────────────────────────
 
 function blank_stage(): StageInput {
-  return { id: "", label: "", description: "", next: done, model: "", effort: "", gates: ["report", "status"], max_proposals: default_max_proposals, paths: [], tools: [], disallowed_tools: [], prompt: "" };
+  return { id: "", label: "", description: "", next: done, model: "", effort: "", mode: "", gates: ["report", "status"], max_proposals: default_max_proposals, paths: [], tools: [], disallowed_tools: [], prompt: "" };
 }
 
 function input_of(stage: Stage): StageInput {
@@ -69,6 +70,9 @@ export function StageDialog({ stages_client, initial, others, on_close }: StageD
         </FormRow>
         <FormRow label="Effort" id="stage-effort">
           <Select<Effort | ""> label="Effort" bare options={[["", "The model's default"], ...efforts.map((effort): [Effort, string] => [effort, effort])]} value={stage.effort} on_change={(effort) => change({ effort })} />
+        </FormRow>
+        <FormRow label="Permission mode" id="stage-mode" hint="How its runs' tool calls are approved unless a run picks another; Manual and Edit automatically ask you on the run's page.">
+          <Select<RunMode | ""> label="Permission mode" bare options={[["", "As the runner's setting says"], ...run_modes.map((mode): [RunMode, string] => [mode, run_mode_labels[mode]])]} value={stage.mode} on_change={(mode) => change({ mode })} />
         </FormRow>
         <FormRow label="Next stage" id="stage-next">
           <Select<string> label="Next stage" bare options={next_options} value={stage.next} on_change={(next) => change({ next })} />
@@ -123,6 +127,7 @@ export function StagesSettings({ stages_client }: { stages_client: Client<Stages
           { label: "Stage", cell: (stage) => <span title={stage.description}>{stage.label}</span> },
           { label: "Model", cell: (stage) => stage.model || "Default" },
           { label: "Effort", cell: (stage) => stage.effort || "Default" },
+          { label: "Mode", cell: (stage) => (stage.mode ? run_mode_labels[stage.mode] : "Default") },
           { label: "Next", cell: (stage) => label_of(stage.next) },
           { label: "Gates", cell: (stage) => String(stage.gates.length) },
           row_actions_column<Stage>({

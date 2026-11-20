@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Stands in for claude -p in the runner's tests: reads the run's messages from stream-json input, does what words in
 // them ask, and answers in stream-json as Claude Code does, with partial blocks, echoes of each message it reads,
-// progress reports on them, and interrupts.
+// progress reports on them, interrupts, permission requests answered over the stream and switches of mode.
 
 import { writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -36,6 +36,16 @@ const queued = [];
 let wake = null;
 let interrupted = false;
 let input_closed = false;
+let mode = option("--permission-mode");
+let request_count = 0;
+const answers = new Map();
+
+// Asks whether a tool may run, as Claude Code does with --permission-prompt-tool stdio, and waits for the answer.
+function ask_permission(tool_name, input) {
+  const request_id = `perm_${++request_count}`;
+  say({ type: "control_request", request_id, request: { subtype: "can_use_tool", tool_name, input, decision_reason: "It changes files outside the worktree." } });
+  return new Promise((resolve) => answers.set(request_id, resolve));
+}
 
 const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -109,6 +119,16 @@ async function turn(message, first) {
     return finish("Waiting for the user.");
   }
   if (text.includes("NO-REPORT")) return finish("I forgot the report.");
+  if (text.includes("PERMIT")) {
+    for (let count = 0; count < (text.includes("TWICE") ? 2 : 1); count += 1) {
+      const input = { command: "rm -rf build" };
+      const id = tool_call("Bash", input);
+      const answer = await ask_permission("Bash", input);
+      if (answer.behavior === "allow") tool_result(id, "removed");
+      else say({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: answer.message, is_error: true }] }, session_id });
+    }
+  }
+  if (text.includes("MODE")) stream_block({ type: "text", text: `Mode is ${mode}.` });
   if (text.includes("SLOW") || text.includes("LISTEN")) {
     const id = tool_call("Bash", { command: "sleep 30" });
     await wait_for(text.includes("SLOW") ? 30_000 : 10_000);
@@ -132,14 +152,19 @@ async function turn(message, first) {
 }
 
 async function serve() {
-  say({ type: "system", subtype: "init", session_id, model: "claude-fake-1", permissionMode: option("--permission-mode") });
+  say({ type: "system", subtype: "init", session_id, model: "claude-fake-1", permissionMode: option("--permission-prompt-tool") === "stdio" ? mode : "no-prompt-tool" });
   const lines = createInterface({ input: process.stdin });
   lines.on("line", (line) => {
     if (!line.trim()) return;
     const message = JSON.parse(line);
+    if (message.type === "control_response") {
+      answers.get(message.response.request_id)?.(message.response.response);
+      return;
+    }
     if (message.type === "control_request") {
       if (message.request.subtype === "interrupt") interrupted = true;
-      say({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
+      if (message.request.subtype === "set_permission_mode") mode = message.request.mode;
+      say({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: message.request.subtype === "set_permission_mode" ? { mode } : {} } });
       wake?.();
       return;
     }

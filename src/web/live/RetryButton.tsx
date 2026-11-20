@@ -10,8 +10,10 @@ import { MenuButton } from "@x-tech-laboratories/x-libs/web/react/menu_button";
 import { ComboField } from "@x-tech-laboratories/x-libs/web/react/suggestions";
 
 import type { RetryOptions } from "../../shared/runs/runner.ts";
+import type { RunMode } from "../../shared/runs/modes.ts";
 import { model_suggestions } from "../../shared/stages/model.ts";
 import { data_watch, page, succeeds } from "../api.ts";
+import { mode_option, ModePicker } from "./ModePicker.tsx";
 
 // ── Retrying ─────────────────────────────────────────────────────────────────
 
@@ -22,18 +24,19 @@ async function retry(run_id: string, options: RetryOptions): Promise<boolean> {
 }
 
 // Asks before discarding the run, since its worktree goes back to where it started.
-export function confirm_retry_from_clean(run_id: string, stage_label: string, model?: string): void {
+export function confirm_retry_from_clean(run_id: string, stage_label: string, options: Omit<RetryOptions, "clean"> = {}): void {
   confirm_dialog({
     title: `Retry ${stage_label} from clean?`,
     message: "The failed run is discarded first: the worktree goes back to the commit it started from and the status sheet to how it was. Then the stage runs afresh, not told how the last attempt went.",
     confirm_label: "Discard and Retry",
     danger: true,
-    run: async () => void (await retry(run_id, { clean: true, ...(model ? { model } : {}) })),
+    run: async () => void (await retry(run_id, { clean: true, ...options })),
   });
 }
 
-function ModelDialog({ run_id, stage_label, on_close }: { run_id: string; stage_label: string; on_close: () => void }) {
+function ModelDialog({ run_id, stage_label, stage_mode, on_close }: { run_id: string; stage_label: string; stage_mode: RunMode | ""; on_close: () => void }) {
   const [model, set_model] = useState("");
+  const [mode, set_mode] = useState<RunMode | "">("");
   return (
     <Dialog
       title={`Retry ${stage_label} on Another Model`}
@@ -43,7 +46,7 @@ function ModelDialog({ run_id, stage_label, on_close }: { run_id: string; stage_
           <button type="button" onClick={on_close}>
             Cancel
           </button>
-          <button type="button" className="accent solid" onClick={() => void retry(run_id, model.trim() ? { model: model.trim() } : {}).then((ok) => ok && on_close())}>
+          <button type="button" className="accent solid" onClick={() => void retry(run_id, { ...(model.trim() ? { model: model.trim() } : {}), ...mode_option(mode) }).then((ok) => ok && on_close())}>
             Retry
           </button>
         </>
@@ -52,13 +55,16 @@ function ModelDialog({ run_id, stage_label, on_close }: { run_id: string; stage_
       <FormRow label="Model for this run" id="retry-model">
         <ComboField label="Model for this run" placeholder="The stage's model" value={model} options={model_suggestions} on_change={set_model} />
       </FormRow>
+      <FormRow label="Permission mode" id="retry-mode">
+        <ModePicker stage_mode={stage_mode} value={mode} on_change={set_mode} />
+      </FormRow>
     </Dialog>
   );
 }
 
 // ── Button ───────────────────────────────────────────────────────────────────
 
-export function RetryButton({ run, stage_label }: { run: { id: string }; stage_label: string }) {
+export function RetryButton({ run, stage_label, stage_mode = "" }: { run: { id: string }; stage_label: string; stage_mode?: RunMode | "" }) {
   const [picking_model, set_picking_model] = useState(false);
   return (
     <span className="inline-row">
@@ -72,7 +78,7 @@ export function RetryButton({ run, stage_label }: { run: { id: string }; stage_l
           { label: "Retry from Clean…", danger: true, run: () => confirm_retry_from_clean(run.id, stage_label) },
         ]}
       />
-      {picking_model && <ModelDialog run_id={run.id} stage_label={stage_label} on_close={() => set_picking_model(false)} />}
+      {picking_model && <ModelDialog run_id={run.id} stage_label={stage_label} stage_mode={stage_mode} on_close={() => set_picking_model(false)} />}
     </span>
   );
 }

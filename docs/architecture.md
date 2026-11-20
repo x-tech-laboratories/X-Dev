@@ -116,7 +116,8 @@ status sheet it started from, its input, its transcript, its report and the stag
 questions and answers, and its cost. `src/server/runner.ts` starts one at a time: it makes the item's worktree, writes
 the stage as a JSON agent definition beside the runner's settings, and hands the session to `src/server/live_run.ts`,
 which runs `claude -p` with stream-json both ways (`src/server/claude_stream.ts` over `src/server/line_program.ts`),
-writes the stage input and the user's messages in, sends an interrupt, folds the stream into the run's transcript
+writes the stage input and the user's messages in, sends an interrupt or a switch of permission mode, holds each tool
+call the session asks about (`can_use_tool`) in the transcript until the user answers it, folds the stream into the run's transcript
 (`src/shared/runs/transcript.ts`) and plain output, saving both as it goes, and closes the input once a turn ends with
 nothing more to say. On the last result the runner either waits for answers, moves the item to the stage its report
 names, or fails the run saying why. A retry is a new run linked to the one it retries, its input carrying how that one

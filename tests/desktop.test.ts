@@ -17,11 +17,11 @@ import { items_label, tray_view, type TrayActions } from "../src/main/tray_menu.
 describe("the desktop settings", () => {
   it("are all on when none were saved", () => {
     expect(read_desktop_settings(null)).toEqual(desktop_setting_defaults);
-    expect(desktop_setting_defaults).toEqual({ show_tray_icon: true, keep_running_in_background: true, start_at_login: true, notify_run_finished: true, notify_run_failed: true, notify_run_asked: true, notify_run_proposed: true, notify_checks_finished: true });
+    expect(desktop_setting_defaults).toEqual({ show_tray_icon: true, keep_running_in_background: true, start_at_login: true, notify_run_finished: true, notify_run_failed: true, notify_run_asked: true, notify_run_approval: true, notify_run_proposed: true, notify_checks_finished: true });
   });
 
   it("keep what was saved and default anything damaged", () => {
-    expect(read_desktop_settings({ show_tray_icon: false, start_at_login: "yes" })).toEqual({ show_tray_icon: false, keep_running_in_background: true, start_at_login: true, notify_run_finished: true, notify_run_failed: true, notify_run_asked: true, notify_run_proposed: true, notify_checks_finished: true });
+    expect(read_desktop_settings({ show_tray_icon: false, start_at_login: "yes" })).toEqual({ show_tray_icon: false, keep_running_in_background: true, start_at_login: true, notify_run_finished: true, notify_run_failed: true, notify_run_asked: true, notify_run_approval: true, notify_run_proposed: true, notify_checks_finished: true });
   });
 });
 

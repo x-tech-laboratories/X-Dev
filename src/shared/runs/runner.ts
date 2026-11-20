@@ -4,6 +4,8 @@
 
 import type { DiffFile } from "../diff/parse.ts";
 import type { ItemInput } from "../items/model.ts";
+import type { RunMode } from "./modes.ts";
+import type { PermissionDecision } from "./transcript.ts";
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
@@ -46,11 +48,15 @@ export interface StartOptions {
   stage?: string;
   // A model for this run alone.
   model?: string;
+  // A permission mode for this run alone, instead of the stage's.
+  mode?: RunMode;
 }
 
 export interface RetryOptions {
   // A model for the retry alone.
   model?: string;
+  // A permission mode for the retry alone.
+  mode?: RunMode;
   // Discards the failed run first, so the retry starts from where that run started and is not told how it ended.
   clean?: boolean;
 }
@@ -77,6 +83,10 @@ export interface RunnerMethods {
   interrupt_run: (run_id: string) => Promise<void>;
   // Runs a failed or stopped run's stage again and gives back the new run's id.
   retry_run: (run_id: string, options: RetryOptions) => Promise<string>;
+  // Switches the permission mode of the run under way from its next tool call on.
+  set_run_mode: (run_id: string, mode: RunMode) => Promise<void>;
+  // Allows or refuses a tool call the run under way waits on, with the reason given back to the agent for a refusal.
+  answer_permission: (run_id: string, request_id: string, decision: PermissionDecision, message: string) => void;
   answer_run: (run_id: string, answers: string) => void;
   discard_run: (run_id: string) => Promise<void>;
   // Saves a new item as the New item form does: its checkout added when given, its issue found or opened when it has none.
@@ -161,6 +171,8 @@ export const runner_method_names = [
   "interject_run",
   "interrupt_run",
   "retry_run",
+  "set_run_mode",
+  "answer_permission",
   "answer_run",
   "discard_run",
   "add_item",

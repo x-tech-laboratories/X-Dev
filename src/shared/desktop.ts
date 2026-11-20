@@ -11,6 +11,7 @@ export interface DesktopSettings {
   notify_run_finished: boolean;
   notify_run_failed: boolean;
   notify_run_asked: boolean;
+  notify_run_approval: boolean;
   notify_run_proposed: boolean;
   notify_checks_finished: boolean;
 }
@@ -22,6 +23,7 @@ export const desktop_setting_defaults: DesktopSettings = {
   notify_run_finished: true,
   notify_run_failed: true,
   notify_run_asked: true,
+  notify_run_approval: true,
   notify_run_proposed: true,
   notify_checks_finished: true,
 };

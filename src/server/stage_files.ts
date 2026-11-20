@@ -23,6 +23,7 @@ import {
   type StageProblem,
   type StagesMethods,
 } from "../shared/stages/model.ts";
+import { is_run_mode } from "../shared/runs/modes.ts";
 import { default_stages } from "./default_stages.ts";
 
 // ── Reading ──────────────────────────────────────────────────────────────────
@@ -69,6 +70,7 @@ export function stage_of_file(id: string, file: StageFile): Stage {
     next: text_of(keys["x-dev-next"]) || done,
     model: text_of(keys.model),
     effort: efforts.includes(effort as Effort) ? (effort as Effort) : "",
+    mode: is_run_mode(keys["x-dev-mode"]) ? keys["x-dev-mode"] : "",
     gates: list_of(keys["x-dev-gates"]),
     max_proposals: Number.isInteger(max_proposals) && max_proposals >= 0 ? max_proposals : default_max_proposals,
     paths: list_of(keys["x-dev-paths"]),
@@ -101,6 +103,7 @@ export function write_stage_file(stage: Stage, previous: Document | null): strin
   set_or_drop(document, "x-dev-gates", stage.gates);
   document.set("x-dev-max-proposals", stage.max_proposals);
   set_or_drop(document, "x-dev-paths", stage.paths);
+  set_or_drop(document, "x-dev-mode", stage.mode);
   return `---\n${String(document).trimEnd()}\n---\n\n${stage.prompt.trim()}\n`;
 }
 

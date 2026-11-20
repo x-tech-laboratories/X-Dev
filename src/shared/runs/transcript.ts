@@ -53,7 +53,24 @@ export interface NoticeEntry {
   text: string;
 }
 
-export type TranscriptEntry = ThinkingEntry | TextEntry | ToolEntry | UserEntry | NoticeEntry;
+// A tool call the agent waits on the user to allow or refuse.
+export interface PermissionEntry {
+  kind: "permission";
+  // The request's own id, which the answer names.
+  id: string;
+  tool: string;
+  input: Record<string, unknown>;
+  // Claude Code's own words for why it asks, when it gives some.
+  reason: string;
+  // Missing while it waits.
+  decision?: PermissionDecision;
+  // The reason sent back with a refusal.
+  message?: string;
+}
+
+export type PermissionDecision = "allowed" | "allowed_for_run" | "denied";
+
+export type TranscriptEntry = ThinkingEntry | TextEntry | ToolEntry | UserEntry | NoticeEntry | PermissionEntry;
 
 // What the run is doing between turns of its session.
 export type Activity = "working" | "paused" | "ended";
@@ -244,6 +261,13 @@ export function fold_stream_message(transcript: Transcript, message: Message): b
 
 // ── Writing ──────────────────────────────────────────────────────────────────
 
+// A permission request added to wait for the user, its long input fields cut.
+export function add_permission(transcript: Transcript, request: { id: string; tool: string; input: unknown; reason: string }): PermissionEntry {
+  const entry: PermissionEntry = { kind: "permission", id: request.id, tool: request.tool, input: cut_input(request.input), reason: request.reason };
+  transcript.entries.push(entry);
+  return entry;
+}
+
 // A message from the user added as pending until the stream echoes it.
 export function add_user_message(transcript: Transcript, role: UserRole, id: string, text: string, at?: string): void {
   transcript.entries.push({ kind: "user", role, id, text: cut(text, transcript_limit / 4), pending: true, ...(at ? { at } : {}) });
@@ -267,6 +291,7 @@ export function stored_transcript(transcript: Transcript, limit = transcript_lim
 export function close_open_blocks(transcript: Transcript): void {
   for (const entry of transcript.entries) {
     if ((entry.kind === "thinking" || entry.kind === "text" || entry.kind === "tool") && entry.streaming) entry.streaming = false;
+    if (entry.kind === "permission" && !entry.decision) Object.assign(entry, { decision: "denied", message: "The run ended first." });
   }
 }
 
@@ -304,3 +329,7 @@ export function pending_messages(transcript: Transcript): UserEntry[] {
   return transcript.entries.filter((entry): entry is UserEntry => entry.kind === "user" && entry.pending === true);
 }
 
+// The permission requests still waiting on the user.
+export function waiting_permissions(transcript: Transcript): PermissionEntry[] {
+  return transcript.entries.filter((entry): entry is PermissionEntry => entry.kind === "permission" && !entry.decision);
+}

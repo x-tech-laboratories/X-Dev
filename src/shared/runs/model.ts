@@ -56,6 +56,12 @@ export interface Run {
   // The run this one retries, empty for a first attempt.
   retry_of: string;
   attempt: number;
+  // The permission mode it works in, empty for the runner's setting.
+  permission_mode: string;
+  // What the user allowed for the whole run, such as Bash(npm).
+  allowed: string[];
+  // The tool waiting for the user's approval, empty when none waits.
+  awaiting: string;
 }
 
 // A report's Next when the stage waits on the user.
@@ -116,6 +122,8 @@ export interface StageRun {
   attempt: number;
   // Whether it failed or was stopped in a way another attempt can fix.
   retryable: boolean;
+  // The tool waiting for the user's approval, empty when none waits.
+  awaiting: string;
 }
 
 // The gates a run went through, the ones that were not checked left out.

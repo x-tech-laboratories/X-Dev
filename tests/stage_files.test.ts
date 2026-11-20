@@ -19,6 +19,7 @@ const plan: StageInput = {
   next: "done",
   model: "fable",
   effort: "high",
+  mode: "acceptEdits",
   gates: ["report", "status"],
   max_proposals: 3,
   paths: [],
@@ -61,7 +62,7 @@ describe("a stage's fields", () => {
 
 describe("a stage file", () => {
   it("reads Claude Code's keys and X-Dev's own", () => {
-    const text = "---\nname: stage-plan\ndescription: Plans.\nmodel: fable\neffort: high\ntools: Read, Grep\nx-dev-order: 2\nx-dev-next: implement\nx-dev-gates: [report]\nx-dev-max-proposals: 10\n---\n\nYou are the Plan stage.\n";
+    const text = "---\nname: stage-plan\ndescription: Plans.\nmodel: fable\neffort: high\ntools: Read, Grep\nx-dev-order: 2\nx-dev-next: implement\nx-dev-gates: [report]\nx-dev-max-proposals: 10\nx-dev-mode: default\n---\n\nYou are the Plan stage.\n";
     expect(stage_of_file("plan", parse_stage_file(text))).toEqual({
       id: "plan",
       label: "Plan",
@@ -70,6 +71,7 @@ describe("a stage file", () => {
       next: "implement",
       model: "fable",
       effort: "high",
+      mode: "default",
       gates: ["report"],
       max_proposals: 10,
       paths: [],
@@ -83,6 +85,7 @@ describe("a stage file", () => {
     expect(stage_of_file("plan", parse_stage_file("---\nname: stage-plan\n---\nPlan.")).max_proposals).toBe(3);
     expect(stage_of_file("plan", parse_stage_file("---\nx-dev-max-proposals: 0\n---\nPlan.")).max_proposals).toBe(0);
     expect(stage_of_file("plan", parse_stage_file("---\nx-dev-max-proposals: many\n---\nPlan.")).max_proposals).toBe(3);
+    expect(stage_of_file("plan", parse_stage_file("---\nx-dev-mode: plan\n---\nPlan.")).mode).toBe("");
   });
 
   it("is refused without frontmatter or with broken YAML", () => {
@@ -99,6 +102,7 @@ describe("a stage file", () => {
     expect(text).toContain("model: fable");
     expect(text).toContain("disallowedTools: Edit, Write");
     expect(text).not.toContain("x-dev-paths");
+    expect(text).toContain("x-dev-mode: acceptEdits");
     expect(text.endsWith("\n\nYou are the Plan stage.\n")).toBe(true);
     expect(stage_of_file("plan", parse_stage_file(text))).toEqual({ ...plan, order: 1 });
   });

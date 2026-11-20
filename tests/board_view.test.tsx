@@ -44,6 +44,7 @@ function fake_page({ running = false } = {}) {
   };
   set_page_api({
     host: "desktop",
+    daemon_is_here: true,
     calls: as_client(store) as Client<DevMethods>,
     device: null,
     stages: as_client(stages) as Client<StagesMethods>,
@@ -395,6 +396,19 @@ describe("a card's live run", () => {
     expect(await within(dialog).findByText("→ Bash: git status")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+});
+
+describe("a card's run waiting for approval", () => {
+  it("says so on the card, with the tool it waits on", async () => {
+    const { database, store } = fake_page({ running: true });
+    const id = store.save_item({ title: "Swimlanes", repository: "x-tech-laboratories/X-Dev", stage: "implement" });
+    add_run(database, id, "implement", { state: "running", awaiting: "Bash" });
+    render(<App />);
+
+    const found = await card("Swimlanes");
+    expect(within(found).getByText("Waiting for approval")).toBeTruthy();
+    expect(board_card("Swimlanes").className).toContain("tone-edge-warn");
   });
 });
 

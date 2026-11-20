@@ -306,6 +306,69 @@ describe("a live run", () => {
   });
 });
 
+describe("a run's permission mode", () => {
+  const waiting_on = (store: ReturnType<typeof bind_methods>, run_id: string) => read_transcript(store.get_run(run_id).transcript).entries.filter((entry) => entry.kind === "permission" && !entry.decision);
+
+  it("starts in the mode picked for it, with tool calls asked of X-Dev over the stream", async () => {
+    const { store, runner, item } = await setup();
+    const run_id = await runner.methods.start_run(item("Plan it. STATUS"), { mode: "acceptEdits" });
+    await runner.idle();
+
+    expect(store.get_run(run_id).permission_mode).toBe("acceptEdits");
+    expect(read_transcript(store.get_run(run_id).transcript).mode).toBe("acceptEdits");
+  });
+
+  it("holds a tool call for the user, and lets the same kind through for the rest of the run once allowed for it", async () => {
+    const { store, runner, item } = await setup();
+    const run_id = await runner.methods.start_run(item("PERMIT TWICE STATUS"), { mode: "default" });
+    await until(() => waiting_on(store, run_id).length === 1);
+
+    expect(store.get_run(run_id).awaiting).toBe("Bash");
+    expect(store.list_stage_runs()[0]!.awaiting).toBe("Bash");
+    const request = waiting_on(store, run_id)[0]!;
+    expect(request).toMatchObject({ tool: "Bash", input: { command: "rm -rf build" }, reason: "It changes files outside the worktree." });
+    runner.methods.answer_permission(run_id, request.kind === "permission" ? request.id : "", "allowed_for_run", "");
+    await runner.idle();
+
+    const run = store.get_run(run_id);
+    expect(run).toMatchObject({ state: "done", awaiting: "", allowed: ["Bash(rm)"] });
+    const entries = read_transcript(run.transcript).entries;
+    expect(entries.filter((entry) => entry.kind === "permission").map((entry) => entry.kind === "permission" && entry.decision)).toEqual(["allowed_for_run"]);
+    expect(entries.filter((entry) => entry.kind === "tool" && entry.result === "removed")).toHaveLength(2);
+  });
+
+  it("sends a refusal's reason back to the agent", async () => {
+    const { store, runner, item } = await setup();
+    const run_id = await runner.methods.start_run(item("PERMIT STATUS"), { mode: "default" });
+    await until(() => waiting_on(store, run_id).length === 1);
+    const request = waiting_on(store, run_id)[0]!;
+
+    expect(() => runner.methods.answer_permission(run_id, "nothing", "allowed", "")).toThrow("that request is no longer waiting");
+    runner.methods.answer_permission(run_id, request.kind === "permission" ? request.id : "", "denied", "Never delete the build folder.");
+    await runner.idle();
+
+    const entries = read_transcript(store.get_run(run_id).transcript).entries;
+    expect(entries.find((entry) => entry.kind === "permission")).toMatchObject({ decision: "denied", message: "Never delete the build folder." });
+    expect(entries.find((entry) => entry.kind === "tool" && entry.input.command === "rm -rf build")).toMatchObject({ result: "Never delete the build folder.", is_error: true });
+  });
+
+  it("switches the mode of the session under way", async () => {
+    const { store, runner, item } = await setup();
+    const run_id = await runner.methods.start_run(item("SLOW STATUS"), {});
+    await until(() => read_transcript(store.get_run(run_id).transcript).entries.some((entry) => entry.kind === "tool" && entry.input.command === "sleep 30"));
+
+    await expect(runner.methods.set_run_mode(run_id, "plan" as never)).rejects.toThrow("is not a permission mode");
+    await runner.methods.set_run_mode(run_id, "acceptEdits");
+    expect(store.get_run(run_id).permission_mode).toBe("acceptEdits");
+    await runner.methods.interrupt_run(run_id);
+    await until(() => read_transcript(store.get_run(run_id).transcript).activity === "paused");
+    runner.methods.interject_run(run_id, "MODE");
+    await runner.idle();
+
+    expect(read_transcript(store.get_run(run_id).transcript).entries.some((entry) => entry.kind === "text" && entry.text === "Mode is acceptEdits.")).toBe(true);
+  });
+});
+
 describe("retrying a stage", () => {
   it("runs the stage again on the worktree as it was, telling the agent how the last attempt ended", async () => {
     const { store, runner, checkout, item } = await setup();

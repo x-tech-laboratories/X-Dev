@@ -38,6 +38,38 @@ describe("a Claude Code stream session", () => {
   });
 });
 
+// A stand-in session that asks two things of its host and prints the answers it gets.
+const asking_session = `
+const lines = require("node:readline").createInterface({ input: process.stdin });
+const say = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
+say({ type: "control_request", request_id: "a1", request: { subtype: "can_use_tool", tool_name: "Bash" } });
+say({ type: "control_request", request_id: "a2", request: { subtype: "hook_callback" } });
+lines.on("line", (line) => say({ type: "answer", got: JSON.parse(line) }));
+`;
+
+describe("a Claude Code session's own requests", () => {
+  it("are handed to the host to answer, and refused when the host does not take them", async () => {
+    const answers: StreamMessage[] = [];
+    const stream = start_claude_stream([process.execPath, "-e", asking_session], {
+      on_line: (_line, message) => {
+        if (message?.type === "answer") answers.push(message.got as StreamMessage);
+        if (answers.length === 2) stream.end_input();
+      },
+      on_request: (request_id, request) => {
+        if (request.subtype !== "can_use_tool") return false;
+        stream.respond(request_id, { behavior: "allow", updatedInput: {} });
+        return true;
+      },
+    });
+    await stream.finished;
+
+    expect(answers).toEqual([
+      { type: "control_response", response: { subtype: "success", request_id: "a1", response: { behavior: "allow", updatedInput: {} } } },
+      { type: "control_response", response: { subtype: "error", request_id: "a2", error: "X-Dev does not answer this request" } },
+    ]);
+  });
+});
+
 describe("a program talked to in lines", () => {
   it("says a program that is not installed is missing", async () => {
     const program = start_line_program(["x-dev-no-such-program"], { on_line: () => undefined });

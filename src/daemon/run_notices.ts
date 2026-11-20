@@ -17,6 +17,7 @@ const setting_of: Record<NoticeKind, keyof DesktopSettings> = {
   run_finished: "notify_run_finished",
   run_failed: "notify_run_failed",
   run_asked: "notify_run_asked",
+  run_approval: "notify_run_approval",
   run_proposed: "notify_run_proposed",
   checks_finished: "notify_checks_finished",
 };

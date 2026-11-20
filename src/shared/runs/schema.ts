@@ -57,6 +57,10 @@ export const runs = sqliteTable(
     // The run this one retries, and which attempt at its stage it is.
     retry_of: text().notNull().default(""),
     attempt: integer().notNull().default(1),
+    // The run's permission mode, the rules allowed for the whole run as JSON, and the tool waiting for approval.
+    permission_mode: text().notNull().default(""),
+    allowed: text().notNull().default("[]"),
+    awaiting: text().notNull().default(""),
   },
   (table) => [index("runs_by_item").on(table.item_id, table.started_at)],
 );

@@ -6,6 +6,7 @@ import type { ApiSpec } from "@x-tech-laboratories/x-libs/api_spec";
 
 import { id_of, text } from "../api_schemas.ts";
 import { item_kinds } from "../items/model.ts";
+import { run_modes } from "./modes.ts";
 import { permission_modes, type RunnerMethods } from "./runner.ts";
 
 // ── Calls ────────────────────────────────────────────────────────────────────
@@ -108,12 +109,25 @@ export const runner_api: ApiSpec<RunnerMethods> = {
       { name: "item_id", schema: id_of("item") },
       {
         name: "options",
-        schema: { type: "object", properties: { stage: text("The stage to run, such as plan; the item's own stage unless given."), model: text("A model for this run alone, such as opus; the stage's own unless given.") }, additionalProperties: false, description: "The stage and model; pass {} for the item's stage on its stage's model." },
+        schema: { type: "object", properties: { stage: text("The stage to run, such as plan; the item's own stage unless given."), model: text("A model for this run alone, such as opus; the stage's own unless given."), mode: { type: "string", enum: [...run_modes], description: "A permission mode for this run alone; the stage's own unless given. Only default (Manual) is taken from another device or MCP." } }, additionalProperties: false, description: "The stage, model and permission mode; pass {} for the item's stage on its stage's model and mode." },
       },
     ],
   },
   stop_run: { description: "Stops the run under way, or ends a run waiting for answers; its work so far is kept and can be discarded.", params: [{ name: "run_id", schema: id_of("run") }] },
   answer_run: { description: `Answers a run waiting for answers (its questions are in get_run) and resumes the agent's session where it stopped. ${starts_agent}`, params: [{ name: "run_id", schema: id_of("run") }, { name: "answers", schema: text("The answers, in plain words, one per question.") }] },
+  set_run_mode: {
+    description: "Switches the permission mode of the run under way: auto checks each tool call with no one watching, acceptEdits lets file edits through and asks the user for the rest, default asks the user for every call that is not plainly safe.",
+    params: [{ name: "run_id", schema: id_of("run") }, { name: "mode", schema: { type: "string", enum: [...run_modes], description: "The new mode." } }],
+  },
+  answer_permission: {
+    description: "Allows or refuses a tool call the run under way waits on, as its transcript lists it. allowed_for_run also lets through later calls of the same tool, or for a command the same program, for the rest of the run.",
+    params: [
+      { name: "run_id", schema: id_of("run") },
+      { name: "request_id", schema: text("The waiting request's id, from the run's transcript.") },
+      { name: "decision", schema: { type: "string", enum: ["allowed", "allowed_for_run", "denied"], description: "What to do with the call." } },
+      { name: "message", schema: text("For a refusal, why, which the agent reads; empty otherwise.") },
+    ],
+  },
   interject_run: {
     description: "Writes a message from the user into the run under way; its agent reads it once its current step ends. The message stays in the run and is added to the item's status sheet under Decisions.",
     params: [{ name: "run_id", schema: id_of("run") }, { name: "text", schema: text("The message, in plain words.") }],
@@ -129,7 +143,7 @@ export const runner_api: ApiSpec<RunnerMethods> = {
       { name: "run_id", schema: id_of("run") },
       {
         name: "options",
-        schema: { type: "object", properties: { model: text("A model for the retry alone."), clean: { type: "boolean", description: "Discard the failed run first and start afresh." } }, additionalProperties: false, description: "The model and whether to start clean; both may be left out." },
+        schema: { type: "object", properties: { model: text("A model for the retry alone."), mode: { type: "string", enum: [...run_modes], description: "A permission mode for the retry alone." }, clean: { type: "boolean", description: "Discard the failed run first and start afresh." } }, additionalProperties: false, description: "The model and whether to start clean; both may be left out." },
       },
     ],
     destructive: true,
