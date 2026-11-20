@@ -44,7 +44,7 @@ Tracking is not a stage: the item and its GitHub issue are the record every stag
    the latest report, and the notes the user added since. Earlier reports and runs' output are left
    out.
 3. It runs the stage's agent in the item's worktree, one run at a time across the whole app, and
-   streams the output to the page.
+   streams its steps to the page as a live transcript (see [Following a run](#following-a-run)).
 4. The agent ends with a report block (below). The daemon saves it, posts it to the issue as a
    comment and moves the issue's `stage:*` label.
 5. The user reads the report and can edit it before the next stage reads it.
@@ -53,7 +53,56 @@ Tracking is not a stage: the item and its GitHub issue are the record every stag
    discard never needs a force-push.
 
 A run that fails, is stopped or loses its daemon ends as failed, keeps its output, and changes
-nothing else; the user discards it or runs the stage again.
+nothing else; the user discards it or retries it.
+
+### Following a run
+
+- The transcript shows the agent's thinking folded to one line (live while it streams), its text as
+  markdown, each tool call as a row naming the tool and its file or command that opens to the whole
+  input and result, an edit as a small diff, failed calls marked, and the user's own messages in place.
+  It follows the newest step until the reader scrolls up, with **Jump to Latest** back. A header gives
+  the run's state, model, time, tokens and cost.
+- It is on the item page for the running run and every past one, and in a dialog from the card's
+  **Watch…** while it runs or **Open Transcript** in its menu.
+- The transcript is kept with the run, each block whole once it ends and the earliest steps dropped
+  past a size, so a finished run replays the same view; the old plain output stays one click away.
+  It stays on this computer and on devices the runs sync to, and is never posted to GitHub.
+- **Writing to a run**: a box under the transcript writes a message into the session, shown as not
+  read yet until the agent reads it after its current step. It stays in the run and is added to the
+  status sheet's Decisions, so later stages see how the user steered.
+- **Stop** ends the run at once as stopped, from the transcript, the item page or the card.
+  **Interrupt** halts the current step without ending the session, which then waits, holding the run
+  slot, for the user's next message. Neither asks first.
+
+### Permission modes
+
+- A run works in one of three modes: **Auto** (`auto`) checks each tool call with no one watching,
+  **Edit automatically** (`acceptEdits`) lets file edits in the worktree through and asks the user for
+  the rest, and **Manual** (`default`) asks the user for every call that is not plainly safe. There is
+  no Plan mode, since Plan is a stage.
+- A stage file sets its default with `x-dev-mode`, edited in Settings → Stages beside model and
+  effort; without it the runner's setting applies. Run, Retry and the card's model dialog pick a mode
+  for one run beside the model, and the transcript's header switches the mode of a running session.
+- A tool call the session asks about shows in the transcript with the tool, its input (an edit as a
+  diff, a command as code) and Claude Code's reason, and **Allow**, **Allow … for This Run** (the tool,
+  or for a command the program it starts) or **Deny** with an optional reason the agent reads. While
+  one waits, the run shows **Waiting for approval** on its card and item page, a notification says so,
+  and it keeps the run slot. A run that ends while one waits refuses it.
+- A stage's `tools` and `disallowedTools` and X-Dev's gates apply in every mode.
+- From another device or through MCP, only Manual can be picked or switched to, and a tool call is
+  allowed once, never for the whole run; looser choices are made on the computer that runs the agents.
+
+### Retrying
+
+- A run that failed, was held by a gate or was stopped offers **Retry** in place of Run, on the card,
+  the item page and the transcript, with the model picker as for Run. A run held only by pull request
+  checks still running is not offered it, since it clears by itself.
+- Retry starts a new run of the same stage on the worktree as the failed run left it, its input
+  carrying a **Previous attempt** section: how it ended, the error or each failed gate with its
+  findings, and its report if it wrote one; never its transcript.
+- **Retry from Clean** discards the failed run first, after the same confirm as Discard, and runs the
+  stage afresh without that section.
+- A retry names the run it retries, and the timeline and Runs page show it as "Attempt 2 of Implement".
 
 ### Clarifying questions
 
@@ -180,6 +229,7 @@ x-dev-next: extract     # the stage that normally follows
 x-dev-label: Implement  # the name the page shows
 x-dev-gates: [worktree, tests-kept, tests-pass, types-lint, coverage, commits, secrets, leftovers, comments, size, x-libs, dependencies]
 x-dev-paths: ["**"]     # what the stage may change; Specify has ["tests/**"]
+x-dev-mode: acceptEdits # its runs' permission mode; left out for the runner's setting
 ```
 
 The Stages section of Settings lists them in order and edits each one in a dialog: its name, model,
@@ -211,25 +261,42 @@ Agent backends are provider plugins (`agent_backend`). The bundled one runs Clau
 
 ```
 claude -p --agents <run>/agents.json --agent stage-<id> --session-id <uuid> --output-format stream-json
-  --verbose --permission-mode auto
+  --verbose --include-partial-messages --input-format stream-json --replay-user-messages --permission-mode <mode>
+  --permission-prompt-tool stdio
 ```
 
-in the item's worktree, with the input on standard input, through X-Libs' `run_program` (no shell,
-its own process group, stopped by an abort signal). It runs on the user's own Claude login.
+in the item's worktree. It runs on the user's own Claude login.
 
 - The stage goes in as a JSON agent definition (`--agents`), so it runs from whichever folder holds
   the stage files; Claude Code honours its model, effort, tools and refused tools from there, and a
   model given for one run replaces the stage's in that file.
-- The session id is X-Dev's own, so a run waiting for answers resumes with `--resume <uuid>` and the
-  answers on standard input.
+- The session id is X-Dev's own, so a run waiting for answers resumes with `--resume <uuid>`.
+- Input is stream-json and stays open while the run works: the stage input, or the answers, is the
+  first user message, the user's messages are written in as it runs, each with an id the session
+  echoes once it has read it, and `command_lifecycle` lines say when each is finished with
+  (`completed`, or `cancelled` by an interrupt). A
+  `control_request` of subtype `interrupt` halts the current step and is answered by a
+  `control_response`, and one of subtype `set_permission_mode` switches the mode. X-Dev closes the
+  input once a turn's `result` arrives with no message of its own still waiting and the run not
+  halted, and the session then ends.
+- With `--permission-prompt-tool stdio`, a tool call the mode does not settle comes to X-Dev as a
+  `control_request` of subtype `can_use_tool` with the tool, its input and a reason, and is answered by
+  a `control_response` of `{"behavior": "allow", "updatedInput": …}` or `{"behavior": "deny",
+  "message": …}`. This works with no MCP config, which a managed one refuses. The Claude Agent SDK
+  speaks the same protocol, but its licence is Anthropic's own terms rather than one GPL-3.0-or-later
+  can take in, so X-Dev speaks it itself.
+- Output carries `stream_event` lines with the blocks' partial pieces (`thinking_delta`, `text_delta`,
+  `input_json_delta`), whole `assistant` and `user` messages, and one `result` per turn with the
+  final text, `is_error` and the session's cost so far; the report block is read from the last
+  turn's text.
+- The process is X-Dev's own line program (`src/server/line_program.ts`, X-Libs' `run_program` with
+  an open input: no shell, its own process group, stopped by an abort signal).
 - Where a managed MCP config is present, Claude Code refuses both `--strict-mcp-config` and
   `--mcp-config`, so X-Dev's run tools are not an MCP server: they are a small HTTP server on
   127.0.0.1 that the agent calls with curl, the address and the run's token in its environment
   (`X_DEV_RUN_URL`, `X_DEV_RUN_TOKEN`) and the way to call them added to every run's input.
-- The stream's last message is `{"type": "result"}` with the final text, `is_error`,
-  `total_cost_usd` and the session id; the report block is read from that text.
-- The permission mode is a setting, `auto` unless set, so every action is checked with no one
-  watching.
+- The mode is the run's own, else the stage's `x-dev-mode`, else the runner's setting, `auto` unless
+  set (see [Permission modes](#permission-modes)).
 
 This is a written exception to "a daemon never shells out": Claude Code has no Node API that uses the
 user's login, and `git worktree` has none either. GitHub is reached through the `gh` program the user
@@ -253,8 +320,24 @@ Other backends, such as OpenCode, can be added as plugins later.
 - The issue is closed once the item has been through Close, unless it is closed already.
 - Review opens the pull request with `Closes #<n>`. X-Dev finds it from the item's branch after each
   run and keeps its state and checks; the item page shows them. `CyclePoller` looks again every half
-  minute while checks run and every five minutes otherwise; GitHub's webhooks through
-  `server/forge_webhook` are still to come.
+  minute while checks run and every five minutes otherwise.
+- GitHub's webhooks make that at once. `POST /api/github/webhook` on the server, or on a desktop
+  daemon that lets other devices connect, takes `ping`, `pull_request`, `check_suite`, `check_run`,
+  `status`, `workflow_run`, `issues` and `issue_comment`, with no session: X-Libs `server/forge_webhook`
+  checks `X-Hub-Signature-256` over the raw body in constant time against the host's secret, refuses
+  anything unsigned with 401, turns away an address that keeps failing, and answers other events with
+  204. Only the repository and the pull request numbers, branches and issue numbers a delivery names
+  are kept, as that repository's latest delivery in a synced table, and a delivery id seen before
+  is not synced twice. Where the GitHub sync runs, the open items named by issue, pull request or
+  branch are synced after five quiet seconds, so a burst of check events makes one sync per item; a
+  delivery the server took reaches the desktop daemons by sync and is synced there. A repository
+  heard from in the last half hour is polled only every five minutes, as a fallback.
+- The webhook secret is made by X-Dev, kept in a file of mode 600 beside the database or in the
+  desktop profile, never in the synced data or a log, and given back only by the admin's explicit
+  `show_github_webhook_setup`. Settings → Pipeline → Webhooks shows the payload URL, content type and
+  events, makes and replaces the secret, adds the hook through `gh api` with the secret on standard
+  input where the host runs gh, and lists the latest delivery per repository. A desktop-only X-Dev
+  behind NAT that GitHub cannot reach gets no deliveries and keeps polling.
 - Every write goes through `gh` after the run has ended and never fails it: what went wrong is kept
   on the item and shown there, and the next run, the next poll or **Sync to GitHub** tries again.
   Reports and the sheet pass the `secrets` check first and are held back when they fail it.
@@ -276,8 +359,9 @@ Other backends, such as OpenCode, can be added as plugins later.
   and that stage's run. It names the repository and issue and the item, then the run's state, the
   first line of its report or what failed, its model, changed lines, cost and age, its gates, a
   waiting run's question with its choices, the pull request and its checks, and, once it has runs, a
-  dot per stage for the way the item came. It holds Run with a model picker, and a menu to open the
-  item, send it back to an earlier stage and discard its last run. Clicking a card, or Enter on it,
+  dot per stage for the way the item came. It holds Run with a model picker, Retry in its place after a
+  failed or stopped run, Watch, Interrupt and Stop while it runs, and a menu to open the item, its report
+  or its transcript, retry from clean, send it back to an earlier stage and discard its last run. Clicking a card, or Enter on it,
   opens the item at that run; dragging it to an earlier column, or Alt and Left, sends it back after
   a confirm, and no later column takes a dragged card, since stages move on only by a run's report.
   Finished items show in a Done column when asked; on a phone the columns stack. The board fills
@@ -291,8 +375,33 @@ Other backends, such as OpenCode, can be added as plugins later.
   when the agent found none, and adds the checkout to Repositories when the item is saved. The filled form opens for the user to check and change before anything is saved. **Fill in
   the form** opens the same form empty. The agent's run is short and cheap (a setting picks its
   model, Haiku unless set), and it changes nothing until the user saves.
-- **Item**: the issue and its status sheet, then the runs as a timeline, each with its report (editable), its output and
-  its cost; the branch's diff; the pull request and its checks; notes for the next run.
+- **Item**: the issue and its status sheet, then the runs as a timeline, each with its report (editable), its live
+  transcript and changes, Stop, Interrupt or Retry, and its cost; the changes view; the pull request and its checks;
+  notes for the next run.
+
+### Changes view
+
+The way to show and confirm what an agent changed, on the item page and as a tab beside each run's transcript:
+
+- **This run** counts from the commit the run started on, **Whole item** from the item's first run's.
+  Committed, uncommitted and new files all count. It reads again while a run edits.
+- On the left, the changed files as a folder tree: folders fold, each file has a letter for added,
+  modified, deleted or renamed and its added and removed lines, the arrow keys walk it, and a box
+  filters it by name. **Changed | All files** switches to every file in the worktree, the changed ones
+  still marked and the folders holding none folded; an unchanged file picked there shows its text
+  read-only, numbered, in place of the diff. It lists what git tracks or would track, never `.git` or
+  `node_modules`, reads nothing outside the worktree, even through a symlink, and shows no binary file
+  or one over a megabyte.
+- On the right, the picked file's diff side by side, old on the left and new on the right, with line
+  numbers, changed lines tinted and the words that changed within a line tinted again, and unchanged
+  stretches folded behind "Show N more unchanged lines". A switch shows it in one column, which it
+  always is on a narrow window or a phone.
+- **Reviewed** ticks a file for the run, kept with the fingerprint of what it holds, so the tick clears
+  once the file changes again; the view counts "3 of 7 reviewed" and the board card shows the count.
+- **Revert File** puts a file back as it was when the scope started, after a confirm: restored, or
+  removed when the change added it. It waits while a run on the item is under way, and the run and the
+  status sheet's Decisions note it, so later stages do not bring the change back. Together with
+  Manual mode's per-edit approval, this is how the user sees and confirms changed files.
 - **Runs**: every run across items in a table of item, stage, model, state, start, duration, tokens,
   cost and gates, filtered by words and state, a row opening its item at that run; above it the tokens
   and cost summed by stage and by model.
@@ -303,8 +412,8 @@ Other backends, such as OpenCode, can be added as plugins later.
 - **History**, the last row of the sidebar's list after Items, Runs and Repositories, and **Settings** in the sidebar's foot with Stages, GitHub (signing `gh` in and out) and Runs, then the standard
   Sync, Backups, Notifications, Import and export, Plugins, Users and Tokens.
 
-Notifications: a run finished, failed, asked questions or made proposals; a pull request's checks
-finished.
+Notifications: a run finished, failed, asked questions, waits for a tool call's approval or made
+proposals; a pull request's checks finished.
 
 ## Platforms and daemon
 
@@ -324,7 +433,7 @@ reports sync; worktrees and stage files stay on the machine that runs the agents
 | Running the agent | `agent/programs` (`run_program`), `agent/long_runs` for runs that outlive a restart |
 | Following a run | `server/events`, `server/runs`, `web/react/following`, `web/react/outcome_log` |
 | Stage file fields | `web/react/chip_field`, `web/react/suggestions` |
-| GitHub events | `server/forge_webhook`, `server/poller` |
+| GitHub events | `server/forge_webhook` (`is_signed`, `AddressLockout`, `Debouncer`, `register_webhook_route`), `server/poller` |
 | Notifications | `agent/desktop_notify`, `server/notify/*`, `phone_notices` |
 | Lane grouping and filters | `grouping` (`group_items`), `filter`, `FilterStack` |
 | Reports | `web/react/markdown` |
@@ -335,8 +444,12 @@ reports sync; worktrees and stage files stay on the machine that runs the agents
 
 Missing from X-Libs, to be built there rather than in X-Dev:
 
-- A diff view: a branch's changes by file, with added and removed lines. X-Dev's is built app-local in
-  `src/web/diff/` and `src/shared/diff/`, on parse-diff, with nothing of X-Dev in its props, ready to move.
+- A diff view: a file's change side by side or in one column with word marks and folds, and the changed
+  files as a folder tree. X-Dev's is built app-local in `src/web/diff/` and `src/shared/diff/`, on
+  parse-diff and jsdiff, with nothing of X-Dev in its props, ready to move.
+- An agent transcript: an agent session's stream folded into steps and drawn with thinking, tool calls,
+  edits as diffs, permission requests and the user's messages (`src/shared/runs/transcript.ts`,
+  `src/web/transcript/`), and a program talked to in lines both ways (`src/server/line_program.ts`).
 - A GitHub client on Octokit: issues, labels, comments, pull requests and checks, for any app.
 - Git worktrees: make, list, reset and remove one, through `run_program`.
 - Markdown files with frontmatter: read and write them, keeping keys the app does not know.
@@ -352,6 +465,38 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 5. **GitHub**: issues, labels, comments, pull requests and checks.
 6. **Board and item pages**, the diff view, notifications.
 7. **Android and remote daemons**.
+
+## Checked for the live run
+
+Each checked with one real run of Claude Code 2.1.329 on Haiku in a throwaway git repository, about
+five cents in all, through a Node script that spoke the protocol the runner speaks:
+
+- `claude -p --agents <file> --agent stage-probe --session-id <uuid> --output-format stream-json
+  --verbose --include-partial-messages --input-format stream-json --replay-user-messages
+  --permission-mode default --permission-prompt-tool stdio`, with `X_DEV_RUN_URL` and
+  `X_DEV_RUN_TOKEN` set, runs the agent from the definition, streams partial blocks and takes
+  user messages for turn after turn until its input closes.
+- A message written while a tool runs is reported `queued`, read and echoed with `isReplay` right
+  after that tool's result, `started`, answered in the same turn, and `completed` before the turn's
+  `result`; the turn's own message is `completed` just after it.
+- A `control_request` of subtype `interrupt` sent during a 40-second command is answered at once,
+  the turn ends with a `result` of `error_during_execution` and `terminal_reason` `aborted_tools`
+  after a `[Request interrupted by user for tool use]` user message, the message that turn answered is
+  reported `cancelled` rather than `completed`, and the session stays open: the next message is
+  answered as usual.
+- Each `result`'s `total_cost_usd` is the session's cost so far, not the turn's.
+- With `--permission-mode default` (Claude Code also calls it `manual`) and
+  `--permission-prompt-tool stdio`, each Bash and Write call arrived as a `can_use_tool` request with
+  the tool, input, `decision_reason` and `permission_suggestions`; an allow ran it, and a deny's
+  message reached the agent, which reported it. No MCP config was given or needed.
+- `set_permission_mode` to `acceptEdits` mid-session was answered with the new mode: the next Write
+  in the repository ran without asking while a Bash call still asked; switched to `auto`, the next
+  Bash call ran without asking. A Write under a `.claude` folder outside `.claude/worktrees` asks in
+  every mode, Claude Code counting it sensitive.
+- Through X-Dev's runner itself, on Haiku with a one-line probe stage, about three cents: a message
+  written during a 20-second command was read after it and obeyed in the report; an interrupt during
+  the command halted it in about a quarter of a second and the next message finished the run; a run
+  that gave no report failed, and its Retry, carrying the Previous attempt section, finished.
 
 ## Checked for milestone 7
 

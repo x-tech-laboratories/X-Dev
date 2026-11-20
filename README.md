@@ -39,10 +39,24 @@ What it does so far:
   one picked for that run; Review warns when its model is the one Implement's last run used.
   The run works in the item's own git worktree as a headless Claude Code session, one run at a time, and ends with a
   report the next run starts from. A run can ask you questions and wait, update the item's status sheet, and propose
-  new items into the Inbox. Every run keeps its transcript, tokens, cost and report; the latest can be stopped or
-  discarded, which puts the worktree, the status sheet and the stage back as they were. The **Runs** page lists every
+  new items into the Inbox. A run shows live on its item's page, and in a dialog from its card: the agent's thinking,
+  its text and each tool call with its input and result, an edit as a small diff, with its state, model, time, tokens
+  and cost. While it runs you can write to it, which the agent reads after its current step and which goes into the
+  status sheet's Decisions; **Interrupt** halts the current step and leaves the session waiting for your message, and
+  **Stop** ends the run. Every run keeps its transcript, tokens, cost and report; the latest can be discarded, which
+  puts the worktree, the status sheet and the stage back as they were. A run that failed or was stopped offers
+  **Retry**, which runs the stage again on the worktree as it was left and tells the agent how the last attempt ended,
+  or **Retry from Clean**, which discards the run first. A run's permission mode is **Auto**, **Edit automatically** or
+  **Manual**: the stage's by default, picked for one run beside the model, or switched while it runs; in the last two a
+  tool call waits in the transcript for **Allow**, **Allow for This Run** or **Deny**, and the run shows as waiting for
+  approval with a notification. The **Runs** page lists every
   run across items, filtered by words and state, under their tokens and cost summed by stage and by model; a row opens
-  its item at that run. The item's page shows its branch's changes since its work started, file by file.
+  its item at that run. The item's page, and a tab beside each run's transcript, shows what changed since the run or the
+  item's work started: the changed files as a folder tree with their status and line counts, filtered by name, and the
+  picked file's diff side by side with changed words marked (in one column on request and on a narrow window); **All
+  files** shows the whole worktree with the changed files marked and an unchanged file's text read-only. Tick a
+  file **Reviewed**, which clears if it changes again and is counted on the board card, or **Revert File** to put it
+  back as it was, which the run and the status sheet note.
 - **Gates:** once a run hands in its report, X-Dev checks the change itself, by the gates the stage file names: the
   report and status sheet, the main checkout left alone, only allowed paths changed, Specify's tests failing first and
   kept after, tests, types and lint, the coverage floor, Conventional Commits and their trailer, no secrets, no
@@ -62,7 +76,7 @@ What it does so far:
   `<!-- stage-handoff -->` (edited when the report is, marked when the run is discarded), the status sheet at the top of
   the issue's body between `<!-- x-dev-status -->` markers, and the issue closed once the item is through Close. It
   finds the pull request Review opens from the item's branch and shows it with its checks on the item page, looking
-  again every half minute while checks run. Nothing that fails here fails a run: the item page shows what went wrong,
+  again every half minute while checks run, or at once when GitHub's [webhooks](#github-webhooks) reach X-Dev. Nothing that fails here fails a run: the item page shows what went wrong,
   and the next run, the next look or **Sync to GitHub** tries again. Reports and sheets that hold a secret are not
   posted.
 
@@ -91,6 +105,7 @@ The server reads a JSON file named by `X_DEV_CONFIG`; `config.example.json` is t
 | `database`       | the SQLite file, made if missing                          |
 | `backups_folder` | where the server's backups are kept                       |
 | `stages_folder`  | the stage files, `~/.claude/agents` in the server's home unless set |
+| `github_webhook_secret_file` | the file X-Dev keeps GitHub's webhook secret in, `github-webhook-secret` beside the database unless set |
 
 The address and port come from `X_DEV_HOST` and `X_DEV_PORT` (or `--host` and `--port`), 127.0.0.1:7760 unless
 set. The admins are read from the accounts file `X_DEV_PASSWORD_HASH_FILE` names, one `name:hash` line each;
@@ -114,10 +129,12 @@ Runs start on the daemon that holds the checkouts: from its own desktop app, or 
 [Other devices](#other-devices)). On the **Repositories** page choose each checkout's folder, or type its path from a
 browser, a phone or a window connected from another computer; an item's first run makes its worktree there, at
 `.claude/worktrees/item-<issue or id>` on the branch `worktree-item-<issue or id>`, from the latest default branch.
-**Settings → Pipeline → Runs** sets how the agents' actions are approved (auto, checking each one, unless set), the
+**Settings → Pipeline → Runs** sets how the agents' actions are approved where neither the stage nor the run picks a
+mode (auto, checking each one, unless set), the
 `claude` program, and the small model that fills in described items.
 
-Each run is `claude -p` with the stage as its agent and the run's input on standard input. Its X-Dev tools, `ask_user`,
+Each run is `claude -p` with the stage as its agent, talking stream-json both ways: the run's input is its first message,
+your messages are written in as it runs, and its stream becomes the transcript. Its X-Dev tools, `ask_user`,
 `get_item_status`, `update_item_status` and `propose_item`, reach only its item: they are a small HTTP server on
 127.0.0.1 that the agent calls with curl, the address and the run's token in its environment, since Claude Code refuses
 a run's own MCP servers where a managed MCP config is present. A run's agent definition is kept in the profile folder
@@ -130,6 +147,34 @@ going through the `gh` you are signed into means X-Dev never reads, stores or pa
 from **Settings → Pipeline → GitHub**, which starts `gh`'s sign-in in the browser and shows the one-time code to enter
 on GitHub's device page, or with `gh auth login`; **Settings → Pipeline → Runs** names another `gh` if needed. Signing
 out there signs `gh` out on this computer, for every program that uses it.
+
+## GitHub webhooks
+
+Without webhooks X-Dev polls GitHub for each open item's pull request and checks every five minutes, and every half
+minute while checks run. With them GitHub tells X-Dev at once: a pull request, check suite, check run, status,
+workflow run, issue or issue comment event makes X-Dev sync the items it names within seconds, a burst of check events
+making one sync per item. Polling stays as the fallback, every five minutes for a repository that delivered something
+in the last half hour.
+
+**Settings → Pipeline → Webhooks**, for an admin, sets them up on whichever host GitHub can reach: the server, or a
+desktop daemon with **Let other devices connect** on and a public address. Enter that address, such as
+`https://dev.example.org`, press **Create Secret**, then **Show Setup** for what to enter on the repository's
+**Settings → Webhooks → Add webhook** page: the payload URL (`<address>/api/github/webhook`), the content type
+`application/json`, the secret, and the events to tick under "Let me select individual events". On the computer that
+runs the agents, **Add Webhook** does the same through `gh api repos/<owner>/<repo>/hooks`, handing gh the secret on
+its standard input. The section lists the latest delivery from each repository.
+
+The endpoint needs no sign-in: a delivery counts only when GitHub's `X-Hub-Signature-256` signs its exact body with
+the secret, compared in constant time; anything else gets 401, and an address that keeps failing is turned away for a
+while. X-Dev takes nothing from a payload but the repository and the pull request numbers, branch names and issue
+numbers it names, then reads everything else from GitHub through `gh`. A delivery GitHub sends again is answered
+without a second sync, and any other event gets 204. The secret is made by X-Dev and kept in `github-webhook-secret`
+beside the database on the server, or in the desktop app's profile folder, readable by its user alone; no call gives
+it back except **Show Setup** (`show_github_webhook_setup`), and **Replace Secret** makes a new one that every hook
+must then be given.
+
+The server runs no GitHub sync itself: a delivery it takes syncs to the desktop daemons, which sync the items it names.
+A desktop-only X-Dev behind a home router or NAT that GitHub cannot reach receives no webhooks and keeps polling.
 
 ## Gates and x-dev-check
 
@@ -229,8 +274,8 @@ Every control of the page is open to other programs, such as another Claude Code
 daemon that lets other devices connect, behind a token made on **Your account** and sent as
 `Authorization: Bearer <token>`:
 
-- **API:** `POST /api/call/<method>` for the data, `/api/stages/<method>` for the stage files and `/api/runner/<method>`
-  for runs, checkouts and GitHub, with the arguments as a JSON list in order; the data calls also take them by name as a
+- **API:** `POST /api/call/<method>` for the data, `/api/stages/<method>` for the stage files, `/api/runner/<method>`
+  for runs, checkouts and GitHub, and `/api/github_webhook/<method>` for GitHub's webhooks, with the arguments as a JSON list in order; the data calls also take them by name as a
   JSON object. `GET /api/openapi.json` describes every call.
 - **MCP:** `/api/mcp` serves every call as a tool over streamable HTTP, the calls that only read marked read-only. A
   session adds an item with `add_item`, which also adds a checkout given by its path and finds or opens the GitHub issue,

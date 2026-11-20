@@ -57,14 +57,14 @@ describe("the Runs page", () => {
     const { database, store } = fake_page();
     const id = store.save_item({ title: "Swimlanes", repository: "x-tech-laboratories/X-Dev" });
     add_run(database, id, "plan", "fable", { state: "done", cost_usd: 0.5, input_tokens: 1000, output_tokens: 500, ended_at: "2026-11-20T10:02:00.000Z" }, "2026-11-20T10:00:00.000Z");
-    add_run(database, id, "implement", "opus", { state: "failed", cost_usd: 2.25, input_tokens: 9000, output_tokens: 1000, gates: [{ gate: "tests-pass", outcome: "failed", findings: [] }], ended_at: "2026-11-20T11:30:00.000Z" }, "2026-11-20T11:00:00.000Z");
+    add_run(database, id, "implement", "opus", { state: "failed", cost_usd: 2.25, input_tokens: 9000, output_tokens: 1000, gates: [{ gate: "tests-pass", outcome: "failed", findings: [] }], ended_at: "2026-11-20T11:30:00.000Z", attempt: 2 }, "2026-11-20T11:00:00.000Z");
     render(<App />);
     go("#/runs");
 
     const table = await screen.findByRole("table", { name: "Runs" });
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(2);
-    expect(within(rows[0]!).getByText("Implement")).toBeTruthy();
+    expect(within(rows[0]!).getByText("Attempt 2 of Implement")).toBeTruthy();
     expect(within(rows[0]!).getByText("opus")).toBeTruthy();
     expect(within(rows[0]!).getByText("$2.25")).toBeTruthy();
     expect(within(rows[0]!).getByText("10,000")).toBeTruthy();

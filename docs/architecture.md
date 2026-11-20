@@ -115,9 +115,15 @@ to admins only.
 A run is a row in `runs` (`src/shared/runs/`): the stage, its state, the model, the agent's session id, the commit and
 status sheet it started from, its input, its transcript, its report and the stage that report names next, its
 questions and answers, and its cost. `src/server/runner.ts` starts one at a time: it makes the item's worktree, writes
-the stage as a JSON agent definition beside the runner's settings, runs `claude -p` through X-Libs
-`run_program`, reads the stream-json output into the transcript with `read_stream_line`, and on the result either
-waits for answers, moves the item to the stage its report names, or fails the run saying why. `src/server/run_tools.ts`
+the stage as a JSON agent definition beside the runner's settings, and hands the session to `src/server/live_run.ts`,
+which runs `claude -p` with stream-json both ways (`src/server/claude_stream.ts` over `src/server/line_program.ts`),
+writes the stage input and the user's messages in, sends an interrupt or a switch of permission mode, holds each tool
+call the session asks about (`can_use_tool`) in the transcript until the user answers it, folds the stream into the run's transcript
+(`src/shared/runs/transcript.ts`) and plain output, saving both as it goes, and closes the input once a turn ends with
+nothing more to say. On the last result the runner either waits for answers, moves the item to the stage its report
+names, or fails the run saying why. A retry is a new run linked to the one it retries, its input carrying how that one
+ended (`src/shared/runs/attempts.ts`). The page draws a run with `src/web/live/LiveRun.tsx` around
+`src/web/transcript/TranscriptView.tsx`, which knows nothing of X-Dev's runs. `src/server/run_tools.ts`
 is the run's tools as an HTTP server on 127.0.0.1 that the agent calls with curl, each run reaching only its item through a token. Proposals are items at the
 `proposed` stage with the item and run they came from; a proposal whose title is close to an open item's is added to
 that item instead.
@@ -141,6 +147,16 @@ put there, kept on the item as JSON in the `github` column, so a look with nothi
 pull request and its checks are the `pull_request` column. A run held only by its `ci` gate is checked again whenever
 the checks change, and moves on once they pass.
 
+`src/server/github_webhooks.ts` takes GitHub's deliveries at `POST /api/github/webhook`, an open path of `build_app`
+registered through X-Libs `register_webhook_route` so the signature is checked over the raw body. `targets_of` in
+`src/shared/webhooks/model.ts` keeps only the repository and the pull requests, branches and issues a delivery names;
+`src/shared/webhooks/store.ts` keeps each repository's latest in the synced `github_deliveries` table. On the daemon,
+`create_webhook_sync` finds the items they name (`items_named`) and runs `sync_item` for each through a `Debouncer`,
+and `catch_up`, called after each sync from the server, does the same for deliveries the server took. The GitHub
+sync's `quiet_repository` slows polling for a repository heard from lately. The secret and the public address are
+files beside the database or in the profile; the admin's calls are `webhooks_api`, under `/api/github_webhook/` and as
+MCP tools, and the desktop page reaches them through the `x_dev_github_webhook` bridge.
+
 ## Items page and board
 
 `src/web/items/index.tsx` holds the items page: one read of the items and one of the stages, the toolbar and filters,
@@ -158,9 +174,14 @@ page is `contained`, so the Shell keeps the window still and the board scrolls i
 
 `src/web/runs/` lists `list_run_summaries`, every run without its transcript, and sums tokens and cost by stage and
 model with `sum_runs_by`. A run's tokens come from the result line's `usage`, added to the run after each turn. The
-item page's Changes section asks the runner for `get_item_diff`, which `src/server/item_diff.ts` reads with git in the
-item's worktree against the commit its first run started from, parses with `src/shared/diff/parse.ts` on parse-diff,
-and `src/web/diff/DiffView.tsx` draws.
+changes view (`src/web/changes/ChangesView.tsx`) asks the runner for `get_changes`, which `src/server/item_diff.ts` reads
+with git in the item's worktree against the run's or the item's start, new files included, each with a fingerprint of
+its content; `get_file_change` for one file's diff with every line, parsed by `src/shared/diff/parse.ts` on parse-diff
+and laid out side by side or in one column with word marks and folds by `src/shared/diff/rows.ts` on jsdiff;
+`revert_file`; and `list_files` and `get_file` for every file in the worktree, which `src/server/worktree_files.ts`
+reads through git and confines to the worktree. `src/web/diff/` draws the file tree on X-Libs' `Tree` and the file's diff. Reviewed marks are the store
+call `set_file_reviewed` on the run; `list_run_changes` counts each finished run's lines, files and reviewed files for
+the board.
 
 ## Notifications
 

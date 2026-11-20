@@ -21,8 +21,13 @@ import { path_marks, review_model_warning, type GateMark, type PathMark, type St
 import type { LineCounts } from "../../shared/runs/runner.ts";
 import { done, model_suggestions, type Stage } from "../../shared/stages/model.ts";
 import { calls, data_watch, page, succeeds } from "../api.ts";
-import { run_state_labels } from "../items/ItemView.tsx";
+import { run_state_labels } from "../items/words.ts";
 import { RunDialog } from "./RunDialog.tsx";
+import { RunningButtons } from "../live/LiveRun.tsx";
+import { confirm_retry_from_clean } from "../live/RetryButton.tsx";
+import { TranscriptDialog } from "../live/TranscriptDialog.tsx";
+import { mode_option, ModePicker } from "../live/ModePicker.tsx";
+import type { RunMode } from "../../shared/runs/modes.ts";
 
 // ── Gates ────────────────────────────────────────────────────────────────────
 
@@ -93,19 +98,21 @@ export function confirm_send_back(item: Item, stage: Stage): void {
 // ── Model ────────────────────────────────────────────────────────────────────
 
 // Runs the stage once on a model the user picks, warning when Review would repeat Implement's model.
-function ModelDialog({ item, stage, runs, on_close }: { item: Item; stage: Stage; runs: StageRun[]; on_close: () => void }) {
+function ModelDialog({ item, stage, runs, retry_of, on_close }: { item: Item; stage: Stage; runs: StageRun[]; retry_of?: string; on_close: () => void }) {
   const { runner } = page();
   const [model, set_model] = useState("");
+  const [mode, set_mode] = useState<RunMode | "">("");
   const warning = review_model_warning(stage.id, model.trim() || stage.model, runs);
   async function run(): Promise<void> {
-    if (await succeeds(() => runner!.start_run(item.id, { stage: stage.id, ...(model.trim() ? { model: model.trim() } : {}) }))) {
+    const chosen = { ...(model.trim() ? { model: model.trim() } : {}), ...mode_option(mode) };
+    if (await succeeds(() => (retry_of ? runner!.retry_run(retry_of, chosen) : runner!.start_run(item.id, { stage: stage.id, ...chosen })))) {
       data_watch.bump();
       on_close();
     }
   }
   return (
     <Dialog
-      title={`Run ${stage.label} on Another Model`}
+      title={`${retry_of ? "Retry" : "Run"} ${stage.label} on Another Model`}
       subtitle={item.title}
       on_close={on_close}
       buttons={
@@ -114,13 +121,16 @@ function ModelDialog({ item, stage, runs, on_close }: { item: Item; stage: Stage
             Cancel
           </button>
           <button type="button" className="accent solid" onClick={() => void run()}>
-            Run
+            {retry_of ? "Retry" : "Run"}
           </button>
         </>
       }
     >
       <FormRow label="Model for this run" id="run-model">
         <ComboField label="Model for this run" placeholder={stage.model ? `${stage.model}, as the stage says` : "The stage's model"} value={model} options={model_suggestions} on_change={set_model} />
+      </FormRow>
+      <FormRow label="Permission mode" id="run-mode">
+        <ModePicker stage_mode={stage.mode} value={mode} on_change={set_mode} />
       </FormRow>
       {warning && (
         <p className="tone-warn" role="status">
@@ -227,16 +237,21 @@ export function item_href(item: Item, stage: Stage | undefined, runs: StageRun[]
 // The edge a card takes for a run that failed or waits for answers.
 export function card_tone(stage: Stage | undefined, runs: StageRun[]): string | undefined {
   const state = stage_run(stage, runs)?.state;
-  return state === "failed" ? "tone-edge-bad" : state === "waiting" ? "tone-edge-warn" : undefined;
+  const run = stage_run(stage, runs);
+  return state === "failed" ? "tone-edge-bad" : state === "waiting" || (state === "running" && run?.awaiting) ? "tone-edge-warn" : undefined;
 }
 
 export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: ItemCardProps) {
   const { runner } = page();
-  const [dialog, set_dialog] = useState<"report" | "model" | null>(null);
+  const [dialog, set_dialog] = useState<"report" | "model" | "transcript" | null>(null);
   const run = stage_run(stage, runs);
   const latest = runs.reduce<StageRun | undefined>((newest, each) => (!newest || each.started_at > newest.started_at ? each : newest), undefined);
   const busy = run?.state === "running" || run?.state === "waiting";
   const can_start = Boolean(runner && stage) && can_run && !item.closed_at && item.stage !== proposed && item.stage !== done && !busy;
+  // A failed or stopped run at the item's stage is retried rather than run afresh.
+  const retry_of = run?.retryable ? run.run_id : undefined;
+  // A running run held on a tool call the user must allow or refuse.
+  const awaiting = run?.state === "running" && run.awaiting !== "";
   const warning = can_start && stage ? review_model_warning(stage.id, stage.model, runs) : "";
   const counts = run ? changes[run.run_id] : undefined;
   // A run its gates held back says so in its gate chips, so the card keeps its report's summary.
@@ -261,8 +276,9 @@ export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: I
 
   const menu: MenuItem[] = [
     { label: "Open Item", run: () => (window.location.hash = href.slice(1)) },
-    ...(run ? [{ label: "Open Report", run: () => set_dialog("report") }] : []),
-    ...(can_start ? [{ label: `Run ${stage!.label} on Another Model…`, run: () => set_dialog("model") }] : []),
+    ...(run ? [{ label: "Open Report", run: () => set_dialog("report") }, { label: "Open Transcript", run: () => set_dialog("transcript") }] : []),
+    ...(can_start ? [{ label: `${retry_of ? "Retry" : "Run"} ${stage!.label} on Another Model…`, run: () => set_dialog("model") }] : []),
+    ...(can_start && retry_of ? [{ label: `Retry ${stage!.label} from Clean…`, danger: true, run: () => confirm_retry_from_clean(retry_of, stage!.label) }] : []),
     ...(!item.closed_at && item.stage !== proposed ? earlier.map((each, index) => ({ label: `Send Back to ${each.label}`, separator_before: index === 0, run: () => confirm_send_back(item, each) })) : []),
     ...(runner && latest && latest.state !== "running" ? [{ label: "Discard Last Run", danger: true, separator_before: true, run: discard }] : []),
   ];
@@ -280,7 +296,12 @@ export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: I
       {run ? (
         <>
           <div className="card-run">
-            <StatusPill tone={run_state_labels[run.state][1]} busy={run.state === "running"} label={run_state_labels[run.state][0]} />
+            <StatusPill
+              tone={awaiting ? "warn" : run_state_labels[run.state][1]}
+              busy={run.state === "running" && !awaiting}
+              label={`${awaiting ? "Waiting for approval" : run_state_labels[run.state][0]}${run.attempt > 1 ? `, attempt ${run.attempt}` : ""}`}
+              title={awaiting ? `${run.awaiting} waits for your approval` : undefined}
+            />
             {run.state === "failed" && run.error && !held_by_gates ? <span className="tone-bad card-line">{run.error.split("\n")[0]}</span> : run.summary && <span className="card-line">{run.summary}</span>}
           </div>
           <div className="card-meta muted">
@@ -290,11 +311,24 @@ export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: I
                 <span className="tone-good">+{counts.additions}</span> <span className="tone-bad">−{counts.deletions}</span>
               </span>
             )}
+            {counts && counts.files > 0 && (
+              <span title="Files you marked reviewed in the run's changes">
+                {counts.reviewed} of {counts.files} reviewed
+              </span>
+            )}
             {run.cost_usd > 0 && <span>{money(run.cost_usd)}</span>}
             <Age epoch={Date.parse(run.ended_at ?? run.started_at) / 1000} />
           </div>
           <GateChips gates={run.gates} />
           {run.state === "waiting" && <Question run={run} on_open={() => set_dialog("report")} />}
+          {run.state === "running" && runner && (
+            <div className="card-actions">
+              <button type="button" onClick={() => set_dialog("transcript")}>
+                Watch…
+              </button>
+              <RunningButtons run={{ id: run.run_id, state: run.state }} can_interrupt />
+            </div>
+          )}
         </>
       ) : (
         stage && <span className="card-line muted small">Not run yet{stage.model ? ` · ${stage.model}` : ""}</span>
@@ -303,9 +337,15 @@ export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: I
       <PathStrip item={item} stages={stages} runs={runs} />
       {can_start && (
         <div className="card-actions">
-          <button type="button" className="accent solid" aria-label={`Run ${stage!.label} on ${item.title}`} onClick={() => void succeeds(() => runner!.start_run(item.id, {})).then(() => data_watch.bump())}>
-            Run {stage!.label}
-          </button>
+          {retry_of ? (
+            <button type="button" className="accent solid" aria-label={`Retry ${stage!.label} on ${item.title}`} onClick={() => void succeeds(() => runner!.retry_run(retry_of, {})).then(() => data_watch.bump())}>
+              Retry {stage!.label}
+            </button>
+          ) : (
+            <button type="button" className="accent solid" aria-label={`Run ${stage!.label} on ${item.title}`} onClick={() => void succeeds(() => runner!.start_run(item.id, {})).then(() => data_watch.bump())}>
+              Run {stage!.label}
+            </button>
+          )}
           <button type="button" onClick={() => set_dialog("model")}>
             Model…
           </button>
@@ -313,7 +353,8 @@ export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: I
         </div>
       )}
       {dialog === "report" && run && stage && <RunDialog run_id={run.run_id} stage_label={stage.label} item_title={item.title} on_close={() => set_dialog(null)} />}
-      {dialog === "model" && stage && <ModelDialog item={item} stage={stage} runs={runs} on_close={() => set_dialog(null)} />}
+      {dialog === "model" && stage && <ModelDialog item={item} stage={stage} runs={runs} retry_of={retry_of} on_close={() => set_dialog(null)} />}
+      {dialog === "transcript" && run && stage && <TranscriptDialog run_id={run.run_id} stage_label={stage.label} item_title={item.title} is_latest on_close={() => set_dialog(null)} />}
     </article>
   );
 }

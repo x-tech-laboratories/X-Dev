@@ -1,5 +1,5 @@
-// What to tell the user about runs while X-Dev is not in front of them: a run that finished, failed, asked questions or
-// made proposals, and a pull request whose checks finished, worked out from how things looked before and after a
+// What to tell the user about runs while X-Dev is not in front of them: a run that finished, failed, asked questions,
+// waits for a tool call to be approved or made proposals, and a pull request whose checks finished, worked out from how things looked before and after a
 // change, apart from how it is shown.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
@@ -10,7 +10,7 @@ import type { RunState } from "./model.ts";
 
 // ── Shapes ───────────────────────────────────────────────────────────────────
 
-export const notice_kinds = ["run_finished", "run_failed", "run_asked", "run_proposed", "checks_finished"] as const;
+export const notice_kinds = ["run_finished", "run_failed", "run_asked", "run_approval", "run_proposed", "checks_finished"] as const;
 
 export type NoticeKind = (typeof notice_kinds)[number];
 
@@ -19,6 +19,7 @@ export const notice_kind_labels: Record<NoticeKind, [label: string, hint: string
   run_finished: ["A run finished", "A stage run handed in its report and passed its gates."],
   run_failed: ["A run failed", "A stage run failed, or a gate held its change back."],
   run_asked: ["A run asked questions", "A stage run is waiting for your answers."],
+  run_approval: ["A run waits for approval", "A stage run in Manual or Edit automatically mode waits for you to allow or deny a tool call."],
   run_proposed: ["A run made proposals", "A stage run proposed new items, which wait in the inbox."],
   checks_finished: ["A pull request's checks finished", "Every check on an item's pull request has passed or failed."],
 };
@@ -35,12 +36,16 @@ export interface RunSnapshot {
   summary: string;
   error: string;
   question: string;
+  // The tool waiting for the user's approval, empty when none waits.
+  awaiting: string;
 }
 
 // What a run looked like when last seen running, and how many proposals it had made by then.
 export interface SeenRun {
   state: RunState;
   proposals_before: number;
+  // The tool it waited on for approval when last seen.
+  awaiting?: string;
 }
 
 export interface RunNotice {
@@ -69,7 +74,10 @@ export function run_notices(seen: Map<string, SeenRun>, runs: RunSnapshot[], sta
     const before = seen.get(run.id);
     const url = app_link(`#/items/${run.item_id}/${run.id}`);
     if (run.state === "running") {
-      next.set(run.id, { state: run.state, proposals_before: before?.state === "running" ? before.proposals_before : run.proposals });
+      next.set(run.id, { state: run.state, proposals_before: before?.state === "running" ? before.proposals_before : run.proposals, awaiting: run.awaiting });
+      if (before && run.awaiting && run.awaiting !== before.awaiting) {
+        notices.push({ kind: "run_approval", key: `item-${run.item_id}`, title: `${stage_label(run.stage)} waits for approval: ${run.item_title}`, body: `Allow or deny ${run.awaiting} to let the run go on.`, url });
+      }
       continue;
     }
     if (before?.state !== "running") continue;

@@ -40,10 +40,19 @@ function fake_runner() {
     get_github: vi.fn(async () => ({ signed_in: false, account: "", problem: "" })),
     sign_in_github: vi.fn(),
     sign_out_github: vi.fn(),
-    get_item_diff: vi.fn(),
+    get_changes: vi.fn(),
+    get_file_change: vi.fn(),
+    revert_file: vi.fn(),
+    list_files: vi.fn(),
+    get_file: vi.fn(),
     list_run_changes: vi.fn(async () => ({})),
     add_item: vi.fn(async () => ({ id: "item-1", repository: "x-tech-laboratories/X-Dev", issue: { number: 12, opened: true }, checkout_added: false, problem: "" })),
     take_proposal: vi.fn(),
+    interject_run: vi.fn(),
+    interrupt_run: vi.fn(async () => undefined),
+    retry_run: vi.fn(async () => "run-2"),
+    set_run_mode: vi.fn(async () => undefined),
+    answer_permission: vi.fn(),
   } satisfies Record<keyof RunnerMethods, unknown>;
 }
 
@@ -99,14 +108,14 @@ describe("the runner over the network", () => {
   it("tells the page whether it may run agents", async () => {
     const { admin, user } = await start(fake_runner());
 
-    expect((await admin({ method: "GET", url: "/api/abilities" })).json()).toEqual({ runner: true, stages: true });
-    expect((await user({ method: "GET", url: "/api/abilities" })).json()).toEqual({ runner: false, stages: false });
+    expect((await admin({ method: "GET", url: "/api/abilities" })).json()).toEqual({ runner: true, stages: true, webhooks: false });
+    expect((await user({ method: "GET", url: "/api/abilities" })).json()).toEqual({ runner: false, stages: false, webhooks: false });
   });
 
   it("has no runner where none runs agents", async () => {
     const { admin } = await start();
 
-    expect((await admin({ method: "GET", url: "/api/abilities" })).json()).toEqual({ runner: false, stages: true });
+    expect((await admin({ method: "GET", url: "/api/abilities" })).json()).toEqual({ runner: false, stages: true, webhooks: false });
     expect((await admin({ method: "POST", url: "/api/runner/get_runner", payload: [] })).statusCode).toBe(404);
   });
 
@@ -152,6 +161,25 @@ describe("the remote runner", () => {
     expect(runner.start_run).toHaveBeenCalledWith("item-1", {});
     expect(runner.answer_run).toHaveBeenCalledWith("run-1", "Yes.");
     expect(() => remote.set_runner_setting("claude_program", "/bin/sh")).toThrow("only from X-Dev on the computer that runs the agents");
+  });
+});
+
+describe("the remote runner's permission modes", () => {
+  it("takes Manual from elsewhere but refuses a looser mode or allowing a tool for the whole run", async () => {
+    const runner = fake_runner();
+    const remote = remote_runner(runner as unknown as RunnerMethods);
+
+    await remote.start_run("item-1", { mode: "default" });
+    await remote.retry_run("run-1", { mode: "default" });
+    await remote.set_run_mode("run-1", "default");
+    remote.answer_permission("run-1", "p1", "allowed", "");
+    expect(runner.start_run).toHaveBeenCalledWith("item-1", { mode: "default" });
+    expect(runner.answer_permission).toHaveBeenCalledWith("run-1", "p1", "allowed", "");
+
+    expect(() => remote.start_run("item-1", { mode: "auto" })).toThrow("picked only from X-Dev on the computer that runs the agents");
+    expect(() => remote.retry_run("run-1", { mode: "acceptEdits" })).toThrow("Manual can be picked from here");
+    expect(() => remote.set_run_mode("run-1", "auto")).toThrow("the auto permission mode");
+    expect(() => remote.answer_permission("run-1", "p1", "allowed_for_run", "")).toThrow("allow this call alone from here");
   });
 });
 

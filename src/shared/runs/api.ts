@@ -6,6 +6,7 @@ import type { ApiSpec } from "@x-tech-laboratories/x-libs/api_spec";
 
 import { id_of, text } from "../api_schemas.ts";
 import { item_kinds } from "../items/model.ts";
+import { run_modes } from "./modes.ts";
 import { permission_modes, type RunnerMethods } from "./runner.ts";
 
 // ── Calls ────────────────────────────────────────────────────────────────────
@@ -43,6 +44,10 @@ export const runs_api = {
   send_item_back: {
     description: "Moves an item to another stage, usually an earlier one, so that stage is the one its next run takes; nothing is run and no run is undone.",
     params: [{ name: "item_id", schema: id_of("item") }, { name: "stage", schema: text("The stage's id, such as plan.") }],
+  },
+  set_file_reviewed: {
+    description: "Marks a file the run changed as reviewed by the user, with the fingerprint of the content they looked at, so the mark clears once the file changes again; an empty fingerprint takes the mark off.",
+    params: [{ name: "run_id", schema: id_of("run") }, { name: "path", schema: text("The file's path in the worktree.") }, { name: "fingerprint", schema: text("The fingerprint the changes list gave for the file; empty to take the mark off.") }],
   },
   save_item_notes: {
     description: "Sets the notes the item's next run is handed, such as answers, corrections or a change of scope.",
@@ -108,12 +113,45 @@ export const runner_api: ApiSpec<RunnerMethods> = {
       { name: "item_id", schema: id_of("item") },
       {
         name: "options",
-        schema: { type: "object", properties: { stage: text("The stage to run, such as plan; the item's own stage unless given."), model: text("A model for this run alone, such as opus; the stage's own unless given.") }, additionalProperties: false, description: "The stage and model; pass {} for the item's stage on its stage's model." },
+        schema: { type: "object", properties: { stage: text("The stage to run, such as plan; the item's own stage unless given."), model: text("A model for this run alone, such as opus; the stage's own unless given."), mode: { type: "string", enum: [...run_modes], description: "A permission mode for this run alone; the stage's own unless given. Only default (Manual) is taken from another device or MCP." } }, additionalProperties: false, description: "The stage, model and permission mode; pass {} for the item's stage on its stage's model and mode." },
       },
     ],
   },
   stop_run: { description: "Stops the run under way, or ends a run waiting for answers; its work so far is kept and can be discarded.", params: [{ name: "run_id", schema: id_of("run") }] },
   answer_run: { description: `Answers a run waiting for answers (its questions are in get_run) and resumes the agent's session where it stopped. ${starts_agent}`, params: [{ name: "run_id", schema: id_of("run") }, { name: "answers", schema: text("The answers, in plain words, one per question.") }] },
+  set_run_mode: {
+    description: "Switches the permission mode of the run under way: auto checks each tool call with no one watching, acceptEdits lets file edits through and asks the user for the rest, default asks the user for every call that is not plainly safe.",
+    params: [{ name: "run_id", schema: id_of("run") }, { name: "mode", schema: { type: "string", enum: [...run_modes], description: "The new mode." } }],
+  },
+  answer_permission: {
+    description: "Allows or refuses a tool call the run under way waits on, as its transcript lists it. allowed_for_run also lets through later calls of the same tool, or for a command the same program, for the rest of the run.",
+    params: [
+      { name: "run_id", schema: id_of("run") },
+      { name: "request_id", schema: text("The waiting request's id, from the run's transcript.") },
+      { name: "decision", schema: { type: "string", enum: ["allowed", "allowed_for_run", "denied"], description: "What to do with the call." } },
+      { name: "message", schema: text("For a refusal, why, which the agent reads; empty otherwise.") },
+    ],
+  },
+  interject_run: {
+    description: "Writes a message from the user into the run under way; its agent reads it once its current step ends. The message stays in the run and is added to the item's status sheet under Decisions.",
+    params: [{ name: "run_id", schema: id_of("run") }, { name: "text", schema: text("The message, in plain words.") }],
+  },
+  interrupt_run: {
+    description: "Halts the current step of the run under way at once, without ending it: the agent's session stays open and waits for the user's next message.",
+    params: [{ name: "run_id", schema: id_of("run") }],
+  },
+  retry_run: {
+    description:
+      "Runs a failed or stopped run's stage again and gives back the new run's id. The new run is told how the last attempt ended, its failed gates and its report, and works on in the worktree as that attempt left it; with clean, the failed run is discarded first and the stage starts afresh. A run held only by pull request checks still running is not retried, since it clears by itself.",
+    params: [
+      { name: "run_id", schema: id_of("run") },
+      {
+        name: "options",
+        schema: { type: "object", properties: { model: text("A model for the retry alone."), mode: { type: "string", enum: [...run_modes], description: "A permission mode for the retry alone." }, clean: { type: "boolean", description: "Discard the failed run first and start afresh." } }, additionalProperties: false, description: "The model and whether to start clean; both may be left out." },
+      },
+    ],
+    destructive: true,
+  },
   discard_run: {
     description: `Drops an item's latest run: its worktree is reset to the commit the run started from, its status sheet and stage go back, and its waiting proposals are dropped. ${on_host}`,
     params: [{ name: "run_id", schema: id_of("run") }],
@@ -124,7 +162,27 @@ export const runner_api: ApiSpec<RunnerMethods> = {
   get_github: { description: "Which GitHub account gh is signed into on the computer that runs the agents.", params: [] },
   sign_in_github: { description: "Starts signing gh in through GitHub's device page and gives back the code to enter there, from any browser.", params: [] },
   sign_out_github: { description: "Signs gh out of GitHub on the computer that runs the agents, for every program that uses it.", params: [], destructive: true },
-  get_item_diff: { description: "What the item's branch changed since its work started, file by file with added and removed lines, read from its worktree.", params: [{ name: "item_id", schema: id_of("item") }] },
+  get_changes: {
+    description: "Lists the files changed since a run started, or since the item's work started, read from the item's worktree with uncommitted and new files included: each file's path, its old path for a rename, whether it was added, changed, removed or renamed, its added and removed lines, and a fingerprint of its content now, which set_file_reviewed takes. Also gives the commit the changes count from and the run they belong to, or why there is nothing to read.",
+    params: [{ name: "item_id", schema: id_of("item") }, { name: "scope", schema: { type: "string", enum: ["run", "item"], description: "run for what the run changed since it started, item for everything since the item's work started." } }, { name: "run_id", schema: text("The run for the run scope, and whose reviewed marks apply; empty for the item's latest run.") }],
+  },
+  get_file_change: {
+    description: "One changed file's diff in the scope, as hunks of numbered lines with every unchanged line kept, so a reader can show it whole.",
+    params: [{ name: "item_id", schema: id_of("item") }, { name: "scope", schema: { type: "string", enum: ["run", "item"], description: "run for what the run changed since it started, item for everything since the item's work started." } }, { name: "run_id", schema: text("The run for the run scope; empty for the item's latest run.") }, { name: "path", schema: text("The file's path in the worktree, as get_changes lists it.") }],
+  },
+  list_files: {
+    description: "Lists every file in the item's worktree by path, changed or not: what git tracks there and new files it would track, ignored files, .git and node_modules left out, up to 20,000 paths.",
+    params: [{ name: "item_id", schema: id_of("item") }],
+  },
+  get_file: {
+    description: "Reads one file in the item's worktree, read-only: its size and text, or no text when it is binary or over a megabyte. A path that leads out of the worktree, by .., an absolute path or a symlink, or into .git or node_modules, is refused.",
+    params: [{ name: "item_id", schema: id_of("item") }, { name: "path", schema: text("The file's path in the worktree, as list_files gives it.") }],
+  },
+  revert_file: {
+    description: "Puts one changed file back as it was when the scope started: restored from that commit, or removed when the change added it. Refused while a run on the item is under way. The run and the item's status sheet note it, so later stages do not bring the change back.",
+    params: [{ name: "item_id", schema: id_of("item") }, { name: "scope", schema: { type: "string", enum: ["run", "item"], description: "run for what the run changed since it started, item for everything since the item's work started." } }, { name: "run_id", schema: text("The run for the run scope; empty for the item's latest run.") }, { name: "path", schema: text("The file's path in the worktree, as get_changes lists it.") }],
+    destructive: true,
+  },
   list_run_changes: {
     description: "The lines each finished run added and removed, by run id, for the runs whose worktree is on the computer that runs the agents.",
     params: [{ name: "run_ids", schema: { type: "array", items: { type: "string" }, description: "The runs' ids." } }],

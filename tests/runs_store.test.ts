@@ -158,4 +158,30 @@ describe("runs", () => {
     expect(store.get_item(id).notes).toBe("Skip Specify.");
     expect(() => store.get_run("missing")).toThrow("no run missing");
   });
+
+  it("keep what the user wrote to a run and which attempt it is, and say on the board whether it can be retried", () => {
+    const { database, store } = open_methods();
+    const id = store.save_item(item);
+    const first = add_run(database, id, "2026-11-20T10:00:00.000Z");
+    update_run(database, first, { state: "failed", gates: [{ gate: "ci", outcome: "failed", findings: ["still running: test"] }] });
+    const retry = insert_run(database, { item_id: id, stage: "implement", model: "", effort: "", session_id: "s", start_commit: "", status_before: "{}", input: "", started_at: "2026-11-20T11:00:00.000Z", retry_of: first, attempt: 2 });
+    update_run(database, retry, { state: "stopped", interjections: [{ text: "Narrower.", at: "2026-11-20T11:05:00.000Z" }] });
+
+    expect(store.get_run(retry)).toMatchObject({ retry_of: first, attempt: 2, interjections: [{ text: "Narrower.", at: "2026-11-20T11:05:00.000Z" }] });
+    expect(store.list_stage_runs().map((run) => [run.stage, run.attempt, run.retryable])).toEqual([
+      ["implement", 2, true],
+      ["plan", 1, false],
+    ]);
+    expect(store.list_run_summaries()[0]).toMatchObject({ attempt: 2 });
+  });
+
+  it("mark a file reviewed with the fingerprint seen, and take the mark off", () => {
+    const { database, store } = open_methods();
+    const run = add_run(database, store.save_item(item), "2026-11-20T10:00:00.000Z");
+
+    store.set_file_reviewed(run, "src/a.ts", "f1");
+    store.set_file_reviewed(run, "src/b.ts", "f2");
+    store.set_file_reviewed(run, "src/a.ts", "");
+    expect(store.get_run(run).reviewed).toEqual({ "src/b.ts": "f2" });
+  });
 });

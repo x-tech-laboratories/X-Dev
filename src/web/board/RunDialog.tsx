@@ -13,7 +13,8 @@ import { Age } from "@x-tech-laboratories/x-libs/web/react/time";
 
 import { gate_marks } from "../../shared/runs/model.ts";
 import { use_data } from "../api.ts";
-import { Answers, run_state_labels } from "../items/ItemView.tsx";
+import { Answers } from "../items/ItemView.tsx";
+import { run_state_labels } from "../items/words.ts";
 import { GateChips } from "./ItemCard.tsx";
 
 // ── Dialog ───────────────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ import { Age } from "@x-tech-laboratories/x-libs/web/react/time";
 import { gate_verdict, run_states, sum_runs_by, type CostTotal, type RunState, type RunSummary } from "../../shared/runs/model.ts";
 import type { Stage } from "../../shared/stages/model.ts";
 import { data_watch, page, use_data } from "../api.ts";
-import { run_state_labels, stage_label } from "../items/ItemView.tsx";
+import { run_state_labels, stage_label } from "../items/words.ts";
 
 // ── Words ────────────────────────────────────────────────────────────────────
 
@@ -76,10 +76,11 @@ export function RunsView() {
   const stages = use_resource(async () => (stages_client ? (await stages_client.list_stages()).stages : []), [stages_client], { watch: data_watch });
   const stage_list: Stage[] = stages.data ?? [];
   const label_of = (id: string) => stage_label(stage_list, id);
+  const attempt_label = (run: RunSummary) => (run.attempt > 1 ? `Attempt ${run.attempt} of ${label_of(run.stage)}` : label_of(run.stage));
 
   const columns: TableColumn<RunSummary>[] = [
     { id: "item", label: "Item", cell: (run) => run.item_title, text: (run) => `${run.item_title} ${run.repository}`, sort: (run) => run.item_title.toLowerCase() },
-    { id: "stage", label: "Stage", cell: (run) => label_of(run.stage), text: (run) => label_of(run.stage), sort: (run) => stage_list.findIndex((stage) => stage.id === run.stage) },
+    { id: "stage", label: "Stage", cell: (run) => attempt_label(run), text: (run) => attempt_label(run), sort: (run) => stage_list.findIndex((stage) => stage.id === run.stage) },
     { id: "model", label: "Model", cell: (run) => run.model || "Default", text: (run) => run.model },
     { id: "state", label: "State", cell: (run) => <StateBadge labels={run_state_labels} state={run.state} title={run.error || undefined} />, text: (run) => run_state_labels[run.state][0], sort: (run) => run.state },
     { id: "started", label: "Started", cell: (run) => <Age epoch={Date.parse(run.started_at) / 1000} />, sort: (run) => run.started_at, filterable: false },

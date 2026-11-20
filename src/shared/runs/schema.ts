@@ -50,6 +50,20 @@ export const runs = sqliteTable(
     // The tokens the agent read, cached ones included, and wrote, summed over every turn of the run.
     input_tokens: integer().notNull().default(0),
     output_tokens: integer().notNull().default(0),
+    // The steps the agent took as JSON, for the live view and its replay; never handed to another agent.
+    transcript: text().notNull().default(""),
+    // What the user wrote to the session while it ran, as JSON.
+    interjections: text().notNull().default("[]"),
+    // The run this one retries, and which attempt at its stage it is.
+    retry_of: text().notNull().default(""),
+    attempt: integer().notNull().default(1),
+    // The run's permission mode, the rules allowed for the whole run as JSON, and the tool waiting for approval.
+    permission_mode: text().notNull().default(""),
+    allowed: text().notNull().default("[]"),
+    awaiting: text().notNull().default(""),
+    // The files marked reviewed, each with the fingerprint of the content seen, and the files put back, as JSON.
+    reviewed: text().notNull().default("{}"),
+    reverts: text().notNull().default("[]"),
   },
   (table) => [index("runs_by_item").on(table.item_id, table.started_at)],
 );

@@ -10,9 +10,10 @@ import { define_feature, drizzle_of, new_id } from "../feature.ts";
 import { check_item, proposed, read_status, title_likeness, type Item, type ItemInput, type ItemKind } from "../items/model.ts";
 import { items } from "../items/schema.ts";
 import { runs_api } from "./api.ts";
+import { can_retry } from "./attempts.ts";
 import { migrations } from "./migrations/index.ts";
 import { gates_cleared, type GateOverride, type GateResult } from "../gates/model.ts";
-import { gate_marks, needs_input, report_summary, type Question, type Run, type RunState, type RunSummary, type StageRun, type TokenCounts } from "./model.ts";
+import { gate_marks, needs_input, report_summary, type Interjection, type Question, type Revert, type Run, type RunState, type RunSummary, type StageRun, type TokenCounts } from "./model.ts";
 import type { RunSnapshot } from "./notices.ts";
 import { runs, runs_tables } from "./schema.ts";
 
@@ -22,7 +23,17 @@ type RunRow = typeof runs.$inferSelect;
 type ItemRow = typeof items.$inferSelect;
 
 function as_run(row: RunRow): Run {
-  return { ...row, state: row.state as RunState, questions: JSON.parse(row.questions) as Question[], gates: JSON.parse(row.gates) as GateResult[], overrides: JSON.parse(row.overrides) as GateOverride[] };
+  return {
+    ...row,
+    state: row.state as RunState,
+    questions: JSON.parse(row.questions) as Question[],
+    gates: JSON.parse(row.gates) as GateResult[],
+    overrides: JSON.parse(row.overrides) as GateOverride[],
+    interjections: JSON.parse(row.interjections) as Interjection[],
+    allowed: JSON.parse(row.allowed) as string[],
+    reviewed: JSON.parse(row.reviewed) as Record<string, string>,
+    reverts: JSON.parse(row.reverts) as Revert[],
+  };
 }
 
 function as_item(row: ItemRow): Item {
@@ -58,7 +69,7 @@ export function runs_in_state(database: SqlDatabase, state: RunState): Run[] {
 
 // ── Writing ──────────────────────────────────────────────────────────────────
 
-export type RunStart = Pick<Run, "item_id" | "stage" | "model" | "effort" | "session_id" | "start_commit" | "status_before" | "input" | "started_at">;
+export type RunStart = Pick<Run, "item_id" | "stage" | "model" | "effort" | "session_id" | "start_commit" | "status_before" | "input" | "started_at"> & Partial<Pick<Run, "retry_of" | "attempt" | "permission_mode">>;
 
 export function insert_run(database: SqlDatabase, start: RunStart): string {
   const id = new_id();
@@ -69,13 +80,22 @@ export function insert_run(database: SqlDatabase, start: RunStart): string {
   return id;
 }
 
-export type RunChanges = Partial<Omit<Run, "id" | "item_id" | "questions" | "gates" | "overrides">> & { questions?: Question[]; gates?: GateResult[]; overrides?: GateOverride[] };
+export type RunChanges = Partial<Omit<Run, "id" | "item_id" | "questions" | "gates" | "overrides" | "interjections" | "allowed" | "reviewed" | "reverts">> & {
+  questions?: Question[];
+  gates?: GateResult[];
+  overrides?: GateOverride[];
+  interjections?: Interjection[];
+  allowed?: string[];
+  reviewed?: Record<string, string>;
+  reverts?: Revert[];
+};
 
 export function update_run(database: SqlDatabase, id: string, changes: RunChanges): void {
-  const { questions, gates, overrides, ...rest } = changes;
+  const { questions, gates, overrides, interjections, allowed, reviewed, reverts, ...rest } = changes;
+  const as_json = (field: string, value: unknown) => (value ? { [field]: JSON.stringify(value) } : {});
   drizzle_of(database)
     .update(runs)
-    .set({ ...rest, ...(questions ? { questions: JSON.stringify(questions) } : {}), ...(gates ? { gates: JSON.stringify(gates) } : {}), ...(overrides ? { overrides: JSON.stringify(overrides) } : {}) })
+    .set({ ...rest, ...as_json("questions", questions), ...as_json("gates", gates), ...as_json("overrides", overrides), ...as_json("interjections", interjections), ...as_json("allowed", allowed), ...as_json("reviewed", reviewed), ...as_json("reverts", reverts) })
     .where(eq(runs.id, id))
     .run();
 }
@@ -117,6 +137,7 @@ const summary_columns = {
   gates: runs.gates,
   overrides: runs.overrides,
   error: runs.error,
+  attempt: runs.attempt,
 };
 
 type SummaryRow = Omit<RunSummary, "state" | "gates_failed" | "gates_passed_over" | "gates_run"> & { state: string; gates: string; overrides: string };
@@ -200,6 +221,8 @@ export const runs_feature = define_feature({
           gates: runs.gates,
           overrides: runs.overrides,
           questions: runs.questions,
+          attempt: runs.attempt,
+          awaiting: runs.awaiting,
         })
         .from(runs)
         .where(ne(runs.state, "discarded"))
@@ -210,7 +233,10 @@ export const runs_feature = define_feature({
         const key = `${row.item_id} ${row.stage}`;
         if (latest.has(key)) continue;
         const { report, gates, overrides, questions, ...rest } = row;
-        latest.set(key, { ...rest, state: row.state as RunState, summary: report_summary(report), gates: gate_marks(JSON.parse(gates) as GateResult[], JSON.parse(overrides) as GateOverride[]), questions: JSON.parse(questions) as Question[] });
+        const results = JSON.parse(gates) as GateResult[];
+        const passed_over = JSON.parse(overrides) as GateOverride[];
+        const state = row.state as RunState;
+        latest.set(key, { ...rest, state, summary: report_summary(report), gates: gate_marks(results, passed_over), questions: JSON.parse(questions) as Question[], retryable: can_retry({ state, gates: results, overrides: passed_over }) });
       }
       return [...latest.values()];
     },
@@ -227,7 +253,7 @@ export const runs_feature = define_feature({
       const named = [...new Set(run_ids)];
       const under_way = eq(runs.state, "running");
       return drizzle_of(database)
-        .select({ id: runs.id, item_id: runs.item_id, item_title: items.title, stage: runs.stage, state: runs.state, proposals: runs.proposals, report: runs.report, error: runs.error, questions: runs.questions })
+        .select({ id: runs.id, item_id: runs.item_id, item_title: items.title, stage: runs.stage, state: runs.state, proposals: runs.proposals, report: runs.report, error: runs.error, questions: runs.questions, awaiting: runs.awaiting })
         .from(runs)
         .innerJoin(items, eq(items.id, runs.item_id))
         .where(named.length ? or(under_way, inArray(runs.id, named)) : under_way)
@@ -258,6 +284,10 @@ export const runs_feature = define_feature({
       const busy = drizzle_of(database).select({ id: runs.id }).from(runs).where(and(eq(runs.item_id, item_id), eq(runs.state, "running"))).get();
       if (busy) throw new Error("a run on that item is under way; stop it first");
       set_item_fields(database, item_id, { stage: stage.trim() });
+    },
+    set_file_reviewed: (database: SqlDatabase, run_id: string, path: string, fingerprint: string): void => {
+      const { [path]: _was, ...rest } = find_run(database, run_id).reviewed;
+      update_run(database, run_id, { reviewed: fingerprint ? { ...rest, [path]: fingerprint } : rest });
     },
     save_item_notes: (database: SqlDatabase, item_id: string, notes: string): void => {
       find_item(database, item_id);

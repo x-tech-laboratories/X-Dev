@@ -51,9 +51,12 @@ describe("the stages settings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Edit Plan" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("Model"), { target: { value: "opus" } });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Permission mode" }), { target: { value: "acceptEdits" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(readFileSync(join(folder, "stage-plan.md"), "utf8")).toContain("model: opus"));
+    expect(readFileSync(join(folder, "stage-plan.md"), "utf8")).toContain("x-dev-mode: acceptEdits");
+    expect(await screen.findByRole("cell", { name: "Edit automatically" })).toBeTruthy();
   });
 
   it("says why a stage cannot be saved", async () => {
