@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { create_run_mcp, type RunMcp } from "../src/server/run_mcp.ts";
+import { create_run_tools, type RunTools } from "../src/server/run_tools.ts";
 import { checkout_names, checkout_of_reply, create_runner, draft_of_reply, find_checkout, match_repository, search_roots, type Runner } from "../src/server/runner.ts";
 import { create_stage_files } from "../src/server/stage_files.ts";
 import { bind_methods, open_store } from "../src/shared/store.ts";
@@ -26,13 +26,13 @@ function make_checkout(): string {
   return folder;
 }
 
-let run_mcp: RunMcp | null = null;
+let run_tools: RunTools | null = null;
 let runner: Runner | null = null;
 
 afterEach(async () => {
   runner?.stop_current();
   await runner?.idle();
-  await run_mcp?.stop();
+  await run_tools?.stop();
 });
 
 async function setup() {
@@ -41,9 +41,9 @@ async function setup() {
   const store = bind_methods(() => database, () => undefined);
   const stages = create_stage_files({ folder: mkdtempSync(join(tmpdir(), "x-dev-stages-")) }).methods;
   stages.add_default_stages();
-  run_mcp = create_run_mcp({ database: () => database, after_write: () => undefined, on_asked: (run_id) => runner!.mark_asked(run_id) });
-  await run_mcp.start();
-  runner = create_runner({ database: () => database, stages, run_mcp, folder: mkdtempSync(join(tmpdir(), "x-dev-runner-")), after_write: () => undefined });
+  run_tools = create_run_tools({ database: () => database, after_write: () => undefined, on_asked: (run_id) => runner!.mark_asked(run_id) });
+  await run_tools.start();
+  runner = create_runner({ database: () => database, stages, run_tools, folder: mkdtempSync(join(tmpdir(), "x-dev-runner-")), after_write: () => undefined });
   const checkout = make_checkout();
   runner.methods.set_runner_setting("claude_program", fake_claude);
   runner.methods.set_repository(repository, checkout);

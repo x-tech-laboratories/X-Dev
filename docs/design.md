@@ -202,14 +202,14 @@ rest. A model is picked from the models the agent backend offers, by alias or ex
 
 ## The agent backend
 
-A run is given X-Dev's MCP endpoint, limited to the item being run, for `ask_user`,
-`get_item_status`, `update_item_status` and `propose_item`.
+A run is given X-Dev's run tools, limited to the item being run, for `ask_user`, `get_item_status`,
+`update_item_status` and `propose_item`, called with curl as set out below.
 
 Agent backends are provider plugins (`agent_backend`). The bundled one runs Claude Code:
 
 ```
 claude -p --agents <run>/agents.json --agent stage-<id> --session-id <uuid> --output-format stream-json
-  --verbose --permission-mode auto --mcp-config <run>/mcp.json
+  --verbose --permission-mode auto
 ```
 
 in the item's worktree, with the input on standard input, through X-Libs' `run_program` (no shell,
@@ -220,8 +220,10 @@ its own process group, stopped by an abort signal). It runs on the user's own Cl
   model given for one run replaces the stage's in that file.
 - The session id is X-Dev's own, so a run waiting for answers resumes with `--resume <uuid>` and the
   answers on standard input.
-- `--strict-mcp-config` is refused where a managed MCP config is present, so a run gets the user's
-  MCP servers as well as X-Dev's own.
+- Where a managed MCP config is present, Claude Code refuses both `--strict-mcp-config` and
+  `--mcp-config`, so X-Dev's run tools are not an MCP server: they are a small HTTP server on
+  127.0.0.1 that the agent calls with curl, the address and the run's token in its environment
+  (`X_DEV_RUN_URL`, `X_DEV_RUN_TOKEN`) and the way to call them added to every run's input.
 - The stream's last message is `{"type": "result"}` with the final text, `is_error`,
   `total_cost_usd` and the session id; the report block is read from that text.
 - The permission mode is a setting, `auto` unless set, so every action is checked with no one
@@ -332,5 +334,5 @@ Missing from X-Libs, to be built there rather than in X-Dev:
   file (checked with Claude Code 2.1.328).
 - `ask_user` records the questions and tells the agent to end its turn; once the session ends with
   questions recorded, the run waits, and answering resumes the same session.
-- X-Dev's run tools are an MCP server of its own on 127.0.0.1, each run reaching only its item through
-  a token in its MCP config's headers.
+- X-Dev's run tools are reached over HTTP with curl, each run reaching only its item through its token;
+  checked with a real Claude Code run under the `auto` permission mode.

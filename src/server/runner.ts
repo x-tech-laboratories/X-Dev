@@ -17,15 +17,14 @@ import { finish_run, find_run, insert_run, latest_report, runs_in_state, set_ite
 import { checkout_state, run_gates } from "./gates.ts";
 import { done, type Stage, type StagesMethods } from "../shared/stages/model.ts";
 import { find_or_open_issue, github_account, github_sign_out, start_github_sign_in } from "./github.ts";
-import type { RunMcp } from "./run_mcp.ts";
-import { run_token_header } from "./run_mcp.ts";
+import { tools_guide, type RunTools } from "./run_tools.ts";
 
 // ── Options ──────────────────────────────────────────────────────────────────
 
 export interface RunnerOptions {
   database: () => SqlDatabase;
   stages: StagesMethods;
-  run_mcp: RunMcp;
+  run_tools: RunTools;
   // Where the runner keeps its settings and each run's agent and MCP files.
   folder: string;
   // Runs after each change to the data, so history records it and the pages hear of it.
@@ -81,7 +80,7 @@ async function ensure_worktree(repository_folder: string, branch: string): Promi
 
 // ── Runner ───────────────────────────────────────────────────────────────────
 
-export function create_runner({ database, stages, run_mcp, folder, after_write, now = () => new Date().toISOString() }: RunnerOptions): Runner {
+export function create_runner({ database, stages, run_tools, folder, after_write, now = () => new Date().toISOString() }: RunnerOptions): Runner {
   const settings_file = join(folder, "runner.json");
   let current: { run_id: string; controller: AbortController; finished: Promise<void> } | null = null;
   const asked = new Set<string>();
@@ -121,8 +120,8 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
     after_write();
   }
 
-  // The agent definition and MCP config a run's session reads, written beside the runner's settings.
-  function write_session_files(run: Run, stage: Stage, token: string): { agents: string; mcp: string } {
+  // The agent definition a run's session reads, written beside the runner's settings.
+  function write_session_files(run: Run, stage: Stage): { agents: string } {
     const run_folder = join(folder, "runs", run.id);
     mkdirSync(run_folder, { recursive: true, mode: 0o700 });
     const agent = {
@@ -134,10 +133,8 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
       ...(stage.disallowed_tools.length ? { disallowedTools: stage.disallowed_tools } : {}),
     };
     const agents = join(run_folder, "agents.json");
-    const mcp = join(run_folder, "mcp.json");
     writeFileSync(agents, JSON.stringify({ [`stage-${stage.id}`]: agent }, null, 2), { mode: 0o600 });
-    writeFileSync(mcp, JSON.stringify({ mcpServers: { "x-dev-run": { type: "http", url: run_mcp.url(), headers: { [run_token_header]: token } } } }, null, 2), { mode: 0o600 });
-    return { agents, mcp };
+    return { agents };
   }
 
   // Test files the item's Specify runs added, which later stages may not change.
@@ -191,8 +188,8 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
   // Runs one turn of a run's session in the background: a new session, or a resumed one with the user's answers.
   function launch(run: Run, stage: Stage, worktree: string, input: string, resume: boolean): void {
     const settings = read_settings();
-    const token = run_mcp.grant({ run_id: run.id, item_id: run.item_id, max_proposals: stage.max_proposals });
-    const files = write_session_files(run, stage, token);
+    const token = run_tools.grant({ run_id: run.id, item_id: run.item_id, max_proposals: stage.max_proposals });
+    const files = write_session_files(run, stage);
     const argv = [
       settings.claude_program,
       "-p",
@@ -206,9 +203,9 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
       "--verbose",
       "--permission-mode",
       settings.permission_mode,
-      "--mcp-config",
-      files.mcp,
     ];
+    // The run's own tools are reached through these, never through an MCP config, which a managed one refuses.
+    const env = { ...process.env, X_DEV_RUN_URL: run_tools.url(), X_DEV_RUN_TOKEN: token };
     const controller = new AbortController();
     let output = run.output;
     let result: StreamResult | null = null;
@@ -232,7 +229,7 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
         save(false);
       },
     };
-    const finished = run_program(argv, { cwd: worktree, stdin: input, stdout: "show", stderr: "keep", out: sink, signal: controller.signal, own_group: true })
+    const finished = run_program(argv, { cwd: worktree, env, stdin: input, stdout: "show", stderr: "keep", out: sink, signal: controller.signal, own_group: true })
       .then(
         async (exit) => {
           save(true);
@@ -242,7 +239,7 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
         (error: unknown) => change(run.id, { state: "failed", ended_at: now(), error: error instanceof Error ? error.message : String(error) }),
       )
       .finally(() => {
-        run_mcp.revoke(token);
+        run_tools.revoke(token);
         if (current?.run_id === run.id) current = null;
         checkouts_before.delete(run.id);
       });
@@ -266,7 +263,7 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
     if (!item.branch) set_item_fields(database(), item.id, { branch });
     const start_commit = await git(["rev-parse", "HEAD"], worktree);
     const checkout_before = await checkout_state(repository_folder);
-    const input = build_run_input({ item: { ...item, branch }, stage_label: stage.label, worktree, issue_url: issue_link(item), latest_report: latest_report(database(), item.id), notes: item.notes });
+    const input = `${build_run_input({ item: { ...item, branch }, stage_label: stage.label, worktree, issue_url: issue_link(item), latest_report: latest_report(database(), item.id), notes: item.notes })}\n\n${tools_guide()}`;
     require_free();
     const run_id = insert_run(database(), {
       item_id: item.id,
