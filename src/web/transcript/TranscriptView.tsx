@@ -45,8 +45,9 @@ function Tool({ entry, live }: { entry: ToolEntry; live: boolean }) {
   return (
     <details className={cx("transcript-step transcript-tool", entry.is_error && "tone-edge-bad")}>
       <summary>
-        <Badge tone={entry.is_error ? "bad" : "none"}>{entry.name}</Badge> <code className="transcript-line">{tool_summary(entry.input) || (entry.input_text ? "…" : "")}</code>
+        <Badge tone={entry.is_error ? "bad" : "none"}>{entry.name}</Badge>
         {running && <span className="status-dot tone-info busy" role="status" aria-label="Running" />}
+        <code className="transcript-line">{tool_summary(entry.input) || (entry.input_text ? "…" : "")}</code>
         {entry.is_error && <span className="tone-bad small">failed</span>}
       </summary>
       <ToolInput entry={entry} />
