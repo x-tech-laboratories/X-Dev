@@ -47,14 +47,15 @@ export type AnswerPermission = (id: string, decision: PermissionDecision, messag
 
 const decision_words: Record<PermissionDecision, string> = { allowed: "Allowed", allowed_for_run: "Allowed for this run", denied: "Denied" };
 
-function Permission({ entry, on_answer }: { entry: PermissionEntry; on_answer?: AnswerPermission }) {
+function Permission({ entry, on_answer, allow_for_run }: { entry: PermissionEntry; on_answer?: AnswerPermission; allow_for_run: boolean }) {
   const [reason, set_reason] = useState("");
   const waiting = !entry.decision;
   return (
     <div className={cx("transcript-step transcript-permission", waiting ? "tone-edge-warn" : entry.decision === "denied" ? "tone-edge-bad" : "tone-edge-good")} role={waiting ? "group" : undefined} aria-label={waiting ? `${entry.tool} waits for approval` : undefined}>
       <div className="inline-row">
         <Badge tone={waiting ? "warn" : entry.decision === "denied" ? "bad" : "good"}>{waiting ? "Waiting for approval" : decision_words[entry.decision!]}</Badge>
-        <strong>{entry.tool}</strong> <code className="transcript-line">{tool_summary(entry.input)}</code>
+        <strong>{entry.tool}</strong>
+        {!waiting && <code className="transcript-line">{tool_summary(entry.input)}</code>}
       </div>
       {entry.reason && <p className="small muted">{entry.reason}</p>}
       {waiting && <ToolInput name={entry.tool} input={entry.input} />}
@@ -66,9 +67,11 @@ function Permission({ entry, on_answer }: { entry: PermissionEntry; on_answer?: 
             <button type="button" className="accent solid" onClick={() => on_answer(entry.id, "allowed", "")}>
               Allow
             </button>
-            <button type="button" onClick={() => on_answer(entry.id, "allowed_for_run", "")}>
-              Allow {rule_words(permission_rule(entry.tool, entry.input))} for This Run
-            </button>
+            {allow_for_run && (
+              <button type="button" onClick={() => on_answer(entry.id, "allowed_for_run", "")}>
+                Allow {rule_words(permission_rule(entry.tool, entry.input))} for This Run
+              </button>
+            )}
             <button type="button" className="danger" onClick={() => on_answer(entry.id, "denied", reason)}>
               Deny
             </button>
@@ -84,8 +87,9 @@ function Tool({ entry, live }: { entry: ToolEntry; live: boolean }) {
   return (
     <details className={cx("transcript-step transcript-tool", entry.is_error && "tone-edge-bad")}>
       <summary>
-        <Badge tone={entry.is_error ? "bad" : "none"}>{entry.name}</Badge> <code className="transcript-line">{tool_summary(entry.input) || (entry.input_text ? "…" : "")}</code>
+        <Badge tone={entry.is_error ? "bad" : "none"}>{entry.name}</Badge>
         {running && <span className="status-dot tone-info busy" role="status" aria-label="Running" />}
+        <code className="transcript-line">{tool_summary(entry.input) || (entry.input_text ? "…" : "")}</code>
         {entry.is_error && <span className="tone-bad small">failed</span>}
       </summary>
       <ToolInput name={entry.name} input={entry.input} input_text={entry.input_text} />
@@ -113,12 +117,20 @@ function UserMessage({ entry, labels }: { entry: UserEntry; labels: Record<UserR
   );
 }
 
-function Step({ entry, live, labels, on_permission }: { entry: TranscriptEntry; live: boolean; labels: Record<UserRole, string>; on_permission?: AnswerPermission }) {
+interface StepProps {
+  entry: TranscriptEntry;
+  live: boolean;
+  labels: Record<UserRole, string>;
+  on_permission?: AnswerPermission;
+  allow_for_run: boolean;
+}
+
+function Step({ entry, live, labels, on_permission, allow_for_run }: StepProps) {
   if (entry.kind === "thinking") return <Thinking entry={entry} />;
   if (entry.kind === "text") return <Markdown text={entry.text} class_name="transcript-step" />;
   if (entry.kind === "tool") return <Tool entry={entry} live={live} />;
   if (entry.kind === "user") return <UserMessage entry={entry} labels={labels} />;
-  if (entry.kind === "permission") return <Permission entry={entry} on_answer={live ? on_permission : undefined} />;
+  if (entry.kind === "permission") return <Permission entry={entry} on_answer={live ? on_permission : undefined} allow_for_run={allow_for_run} />;
   return <p className={cx("transcript-step small", `tone-${entry.tone}`)}>{entry.text}</p>;
 }
 
@@ -135,9 +147,11 @@ interface TranscriptViewProps {
   user_labels?: Partial<Record<UserRole, string>>;
   // Answers a tool call waiting for approval; left out, waiting calls show without buttons.
   on_permission?: AnswerPermission;
+  // Whether a tool can be allowed for the rest of the run from here, rather than one call at a time.
+  allow_for_run?: boolean;
 }
 
-export function TranscriptView({ entries, live, dropped = 0, empty_text = "Nothing yet.", user_labels, on_permission }: TranscriptViewProps) {
+export function TranscriptView({ entries, live, dropped = 0, empty_text = "Nothing yet.", user_labels, on_permission, allow_for_run = true }: TranscriptViewProps) {
   const last = entries.at(-1);
   const size = `${entries.length} ${last && "text" in last ? last.text.length : 0} ${last?.kind === "tool" ? `${last.input_text?.length ?? 0} ${last.result?.length ?? 0}` : ""}`;
   const follow = use_follow_tail<HTMLDivElement>(size, live);
@@ -146,7 +160,7 @@ export function TranscriptView({ entries, live, dropped = 0, empty_text = "Nothi
     <div className="transcript-frame">
       <div ref={follow.ref} className="transcript" role="log" aria-label="Transcript" aria-live={live ? "polite" : "off"} onScroll={follow.on_scroll}>
         {dropped > 0 && <p className="muted small">{dropped} earlier steps were left out to keep the transcript within its size.</p>}
-        {entries.length === 0 ? <p className="muted">{empty_text}</p> : entries.map((entry, index) => <Step key={index} entry={entry} live={live} labels={labels} on_permission={on_permission} />)}
+        {entries.length === 0 ? <p className="muted">{empty_text}</p> : entries.map((entry, index) => <Step key={index} entry={entry} live={live} labels={labels} on_permission={on_permission} allow_for_run={allow_for_run} />)}
       </div>
       {live && !follow.following && (
         <button type="button" className="transcript-jump" onClick={() => follow.set_following(true)}>

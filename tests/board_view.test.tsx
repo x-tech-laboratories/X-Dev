@@ -46,6 +46,7 @@ function fake_page({ running = false } = {}) {
   };
   set_page_api({
     host: "desktop",
+    daemon_is_here: true,
     calls: as_client(store) as Client<DevMethods>,
     device: null,
     stages: as_client(stages) as Client<StagesMethods>,
