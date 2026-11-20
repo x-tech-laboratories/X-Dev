@@ -50,7 +50,7 @@ export const default_stages: StageInput[] = [
     label: "Triage",
     description: "Sorts an issue into bug or feature, reproduces a bug, finds duplicates and names the stages the item needs.",
     next: "plan",
-    model: "fable",
+    model: "sonnet",
     effort: "medium",
     gates: ["report", "status"],
     max_proposals: 10,
