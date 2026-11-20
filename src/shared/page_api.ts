@@ -10,6 +10,7 @@ import type { LocalMcpClient } from "@x-tech-laboratories/x-libs/local_mcp_proto
 import { sync_device_method_names, type SyncDeviceMethods, type SyncStatus } from "@x-tech-laboratories/x-libs/sync_protocol";
 
 import type { DesktopMethods } from "./desktop.ts";
+import type { RunnerMethods } from "./runs/runner.ts";
 import type { StagesMethods } from "./stages/model.ts";
 import type { DevMethods } from "./store.ts";
 
@@ -22,6 +23,7 @@ export const certificates_api_name = "x_dev_certificates";
 export const local_mcp_api_name = "x_dev_local_mcp";
 export const desktop_api_name = "x_dev_desktop";
 export const stages_api_name = "x_dev_stages";
+export const runner_api_name = "x_dev_runner";
 
 // ── Device calls ─────────────────────────────────────────────────────────────
 
@@ -54,6 +56,8 @@ export interface PageApi {
   local_mcp?: LocalMcpClient;
   // The stage files, kept by the daemon or the server that runs the agents; left out on a phone.
   stages?: Client<StagesMethods>;
+  // The runner, on the desktop, whose daemon runs the agents in this computer's checkouts.
+  runner?: Client<RunnerMethods>;
   // Set on the desktop, whose tray, background running and start at login belong to the computer.
   desktop?: Client<DesktopMethods>;
   // Runs whenever the data changed somewhere else; returns the function that stops listening.

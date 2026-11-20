@@ -1,0 +1,77 @@
+// What the page asks of whichever host runs the agents, and that host's own settings, which belong to its computer.
+
+// ── Imports ──────────────────────────────────────────────────────────────────
+
+import type { ItemInput } from "../items/model.ts";
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+
+export const permission_modes = ["auto", "acceptEdits", "dontAsk", "bypassPermissions"] as const;
+
+export type PermissionMode = (typeof permission_modes)[number];
+
+export interface RunnerSettings {
+  // Each repository as owner/name and the folder its checkout is in on this computer.
+  repositories: Record<string, string>;
+  // How the agent's actions are approved with no one watching; auto checks each one.
+  permission_mode: PermissionMode;
+  // The claude program, found on the PATH unless given.
+  claude_program: string;
+  // The model that turns a description into an item.
+  describer_model: string;
+}
+
+export const runner_setting_defaults: RunnerSettings = { repositories: {}, permission_mode: "auto", claude_program: "claude", describer_model: "haiku" };
+
+// Settings saved on the computer, each default where it is missing or damaged.
+export function read_runner_settings(saved: unknown): RunnerSettings {
+  const fields = (saved ?? {}) as Partial<Record<keyof RunnerSettings, unknown>>;
+  const repositories = fields.repositories && typeof fields.repositories === "object" ? (fields.repositories as Record<string, unknown>) : {};
+  return {
+    repositories: Object.fromEntries(Object.entries(repositories).filter((entry): entry is [string, string] => typeof entry[1] === "string")),
+    permission_mode: permission_modes.includes(fields.permission_mode as PermissionMode) ? (fields.permission_mode as PermissionMode) : runner_setting_defaults.permission_mode,
+    claude_program: typeof fields.claude_program === "string" && fields.claude_program.trim() ? fields.claude_program.trim() : runner_setting_defaults.claude_program,
+    describer_model: typeof fields.describer_model === "string" && fields.describer_model.trim() ? fields.describer_model.trim() : runner_setting_defaults.describer_model,
+  };
+}
+
+// ── Calls ────────────────────────────────────────────────────────────────────
+
+export interface StartOptions {
+  // The stage to run, the item's own unless given, such as to send it back.
+  stage?: string;
+  // A model for this run alone.
+  model?: string;
+}
+
+export interface RunnerStatus {
+  settings: RunnerSettings;
+  // The run under way, which holds the one run slot.
+  running_run_id: string | null;
+}
+
+export interface RunnerMethods {
+  get_runner: () => RunnerStatus;
+  set_runner_setting: <Key extends keyof Omit<RunnerSettings, "repositories">>(key: Key, value: RunnerSettings[Key]) => void;
+  set_repository: (repository: string, folder: string) => void;
+  remove_repository: (repository: string) => void;
+  // Starts a stage run in the background and gives back its id.
+  start_run: (item_id: string, options: StartOptions) => Promise<string>;
+  stop_run: (run_id: string) => void;
+  answer_run: (run_id: string, answers: string) => void;
+  discard_run: (run_id: string) => Promise<void>;
+  // A draft item from free text, filled in by an agent for the user to check; nothing is saved.
+  describe_item: (text: string) => Promise<ItemInput>;
+}
+
+export const runner_method_names = [
+  "get_runner",
+  "set_runner_setting",
+  "set_repository",
+  "remove_repository",
+  "start_run",
+  "stop_run",
+  "answer_run",
+  "discard_run",
+  "describe_item",
+] as const satisfies readonly (keyof RunnerMethods)[];

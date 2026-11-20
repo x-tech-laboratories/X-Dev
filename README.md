@@ -16,6 +16,12 @@ What it does so far:
 - **Stages:** the steps every item goes through, from Triage to Close, each a Claude Code agent file with its own
   model, effort, next stage, gates, tools and prompt. **Settings → Pipeline → Stages** lists them in order, edits each
   in a dialog, moves and deletes them, and adds the default stages where they are missing.
+- **Runs:** each item's page starts its current stage, or any other, on the stage's model or one picked for that run.
+  The run works in the item's own git worktree as a headless Claude Code session, one run at a time, and ends with a
+  report the next run starts from. A run can ask you questions and wait, update the item's status sheet, and propose
+  new items into the Inbox. Every run keeps its transcript, cost and report; the latest can be stopped or discarded,
+  which puts the worktree, the status sheet and the stage back as they were.
+- **New items:** described in a few lines for an agent to fill the form in from, or filled in by hand.
 
 ## Running it
 
@@ -57,6 +63,22 @@ overwritten.
 
 The desktop app reads the stages through its daemon; the web server reads `stages_folder`, and only an admin may change
 them. A dev run (`npm run dev`, `npm run dev:server`) keeps its own stages under `dev-data/`.
+
+## Runs
+
+Runs start from the desktop app, whose daemon holds the checkouts. Under **Settings → Pipeline → Repositories** name
+each repository (`owner/name`) and the folder its checkout is in; an item's first run makes its worktree there, at
+`.claude/worktrees/item-<issue or id>` on the branch `worktree-item-<issue or id>`, from the latest default branch.
+**Settings → Pipeline → Runs** sets how the agents' actions are approved (auto, checking each one, unless set), the
+`claude` program, and the small model that fills in described items.
+
+Each run is `claude -p` with the stage as its agent, the run's input on standard input, and an MCP server of X-Dev's own
+that lets it reach only its item: `ask_user`, `get_item_status`, `update_item_status` and `propose_item`. A run's files
+(its agent definition and MCP config) are kept in the profile folder under `runs/`. Runs are not versioned in History;
+their transcripts and reports are kept with them.
+
+X-Dev starts `claude` and `git` as programs, an exception to the Application Standard's rule that a daemon does not
+shell out: Claude Code has no Node API that runs on the user's own login, and Node has no API for git worktrees.
 
 ## The desktop app in the background
 

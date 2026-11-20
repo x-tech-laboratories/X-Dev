@@ -1,31 +1,65 @@
-// The items: every feature or bug fix X-Dev tracks, with its repository, issue and the stage it is at, added and edited
-// in a dialog.
+// The items: every feature or bug fix X-Dev tracks, with its repository, issue and the stage it is at; the inbox of
+// proposals runs made; and a new item, described in free text for an agent to fill in or filled in by hand.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { useState } from "react";
 import { SearchBox, Select, Switch } from "@x-tech-laboratories/x-libs/web/react/controls";
 import { Dialog } from "@x-tech-laboratories/x-libs/web/react/dialog";
-import { FormRow, PageHeading, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout";
-import { Empty, Loaded } from "@x-tech-laboratories/x-libs/web/react/states";
+import { FormRow, PageHeading, Section, Tabs, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout";
+import { Empty, Loaded, use_resource } from "@x-tech-laboratories/x-libs/web/react/states";
+import { ComboField } from "@x-tech-laboratories/x-libs/web/react/suggestions";
 import { DataTable, type TableColumn } from "@x-tech-laboratories/x-libs/web/react/table";
 import { toast } from "@x-tech-laboratories/x-libs/web/react/toasts";
 
-import { is_repository, item_kinds, type Item, type ItemInput, type ItemKind } from "../../shared/items/model.ts";
-import { calls, succeeds, use_data } from "../api.ts";
+import { is_repository, issue_link, item_kinds, type Item, type ItemInput, type ItemKind } from "../../shared/items/model.ts";
+import { attempt, calls, data_watch, page, succeeds, use_data } from "../api.ts";
 import { DialogButtons } from "../forms.tsx";
 import { confirm_delete, row_actions_column } from "../rows.tsx";
+import { ItemView, stage_label } from "./ItemView.tsx";
 
 // ── Dialog ───────────────────────────────────────────────────────────────────
 
 const kind_labels: Record<ItemKind, string> = { feature: "Feature", bug: "Bug fix" };
 
 function blank_item(): ItemInput {
-  return { title: "", kind: "feature", repository: "", issue_number: null };
+  return { title: "", kind: "feature", repository: "", issue_number: null, body: "" };
+}
+
+function input_of(item: Item): ItemInput {
+  return { id: item.id, title: item.title, kind: item.kind, repository: item.repository, issue_number: item.issue_number, body: item.body };
+}
+
+type Way = "describe" | "form";
+
+// The free text an agent turns into a draft, which then opens in the form for the user to check.
+function DescribePane({ on_draft }: { on_draft: (draft: ItemInput) => void }) {
+  const { runner } = page();
+  const [text, set_text] = useState("");
+  const [busy, set_busy] = useState(false);
+  async function describe(): Promise<void> {
+    set_busy(true);
+    const draft = await attempt(() => runner!.describe_item(text));
+    set_busy(false);
+    if (draft) on_draft(draft);
+  }
+  return (
+    <>
+      <textarea aria-label="Describe it" rows={8} placeholder="Paste a bug report or write a few lines about the feature" value={text} onChange={(event) => set_text(event.currentTarget.value)} />
+      <Toolbar>
+        <button type="button" className="accent solid" disabled={busy || !text.trim()} onClick={() => void describe()}>
+          {busy ? "Drafting…" : "Draft the Item"}
+        </button>
+      </Toolbar>
+    </>
+  );
 }
 
 export function ItemDialog({ initial, on_close }: { initial: Item | null; on_close: () => void }) {
-  const [item, set_item] = useState<ItemInput>(() => (initial ? { id: initial.id, title: initial.title, kind: initial.kind, repository: initial.repository, issue_number: initial.issue_number } : blank_item()));
+  const { runner } = page();
+  const [way, set_way] = useState<Way>(initial || !runner ? "form" : "describe");
+  const [item, set_item] = useState<ItemInput>(() => (initial ? input_of(initial) : blank_item()));
+  const repositories = use_resource(async () => (runner ? Object.keys((await runner.get_runner()).settings.repositories) : []), [runner]);
   const change = (changes: Partial<ItemInput>) => set_item((current) => ({ ...current, ...changes }));
 
   async function save(): Promise<void> {
@@ -35,59 +69,108 @@ export function ItemDialog({ initial, on_close }: { initial: Item | null; on_clo
   }
 
   return (
-    <Dialog title={initial ? `Edit ${initial.title}` : "Add Item"} on_close={on_close} buttons={<DialogButtons on_save={() => void save()} on_cancel={on_close} />}>
-      <div className="form-rows">
-        <FormRow label="Title" id="item-title">
-          <input id="item-title" type="text" value={item.title} onChange={(event) => change({ title: event.currentTarget.value })} />
-        </FormRow>
-        <FormRow label="Kind" id="item-kind">
-          <Select<ItemKind> label="Kind" bare options={item_kinds.map((kind) => [kind, kind_labels[kind]])} value={item.kind ?? "feature"} on_change={(kind) => change({ kind })} />
-        </FormRow>
-        <FormRow label="Repository" id="item-repository">
-          <input id="item-repository" type="text" placeholder="owner/name" value={item.repository} onChange={(event) => change({ repository: event.currentTarget.value })} />
-        </FormRow>
-        <FormRow label="Issue" id="item-issue">
-          <input
-            id="item-issue"
-            type="number"
-            min={1}
-            value={item.issue_number ?? ""}
-            onChange={(event) => change({ issue_number: event.currentTarget.value ? Number(event.currentTarget.value) : null })}
-          />
-        </FormRow>
-      </div>
+    <Dialog title={initial ? `Edit ${initial.title}` : "Add Item"} wide on_close={on_close} buttons={way === "form" ? <DialogButtons on_save={() => void save()} on_cancel={on_close} /> : undefined}>
+      {!initial && runner && (
+        <Tabs<Way>
+          label="How to add it"
+          items={[
+            { id: "describe", label: "Describe It" },
+            { id: "form", label: "Fill In the Form" },
+          ]}
+          active={way}
+          on_select={set_way}
+        />
+      )}
+      {way === "describe" ? (
+        <DescribePane
+          on_draft={(draft) => {
+            set_item({ ...draft, issue_number: null });
+            set_way("form");
+          }}
+        />
+      ) : (
+        <div className="form-rows">
+          <FormRow label="Title" id="item-title">
+            <input id="item-title" type="text" value={item.title} onChange={(event) => change({ title: event.currentTarget.value })} />
+          </FormRow>
+          <FormRow label="Kind" id="item-kind">
+            <Select<ItemKind> label="Kind" bare options={item_kinds.map((kind) => [kind, kind_labels[kind]])} value={item.kind ?? "feature"} on_change={(kind) => change({ kind })} />
+          </FormRow>
+          <FormRow label="Repository" id="item-repository">
+            <ComboField id="item-repository" label="Repository" placeholder="owner/name" value={item.repository} options={repositories.data ?? []} list_on_focus on_change={(repository) => change({ repository })} />
+          </FormRow>
+          <FormRow label="Issue" id="item-issue">
+            <input id="item-issue" type="number" min={1} value={item.issue_number ?? ""} onChange={(event) => change({ issue_number: event.currentTarget.value ? Number(event.currentTarget.value) : null })} />
+          </FormRow>
+          <FormRow label="What it asks for" id="item-body">
+            <textarea id="item-body" rows={6} value={item.body ?? ""} onChange={(event) => change({ body: event.currentTarget.value })} />
+          </FormRow>
+        </div>
+      )}
     </Dialog>
+  );
+}
+
+// ── Inbox ────────────────────────────────────────────────────────────────────
+
+function Inbox() {
+  const proposals = use_data((api) => api.list_proposals());
+  if (!proposals.data?.length) return null;
+  return (
+    <Section title={`Inbox (${proposals.data.length})`}>
+      <ul className="inbox">
+        {proposals.data.map((proposal) => (
+          <li key={proposal.id}>
+            <a href={`#/items/${proposal.id}`}>{proposal.title}</a>
+            <span className="muted small"> · {proposal.repository}</span>
+            {proposal.body && <div className="muted small">{proposal.body}</div>}
+            <span className="row-actions">
+              <button type="button" aria-label={`Take ${proposal.title}`} onClick={() => void succeeds(() => calls().accept_proposal(proposal.id), "Taken into Triage.")}>
+                Take
+              </button>
+              <button type="button" aria-label={`Drop ${proposal.title}`} onClick={() => void succeeds(() => calls().drop_proposal(proposal.id))}>
+                Drop
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }
 
 // ── List ─────────────────────────────────────────────────────────────────────
 
-export function issue_link(item: Item): string | null {
-  return item.issue_number === null ? null : `https://github.com/${item.repository}/issues/${item.issue_number}`;
-}
-
-export function ItemsView() {
+function ItemsList() {
+  const { stages: stages_client } = page();
   const [include_closed, set_include_closed] = useState(false);
   const [search, set_search] = useState("");
   const [editing, set_editing] = useState<Item | "new" | null>(null);
   const items = use_data((api) => api.list_items(include_closed), [include_closed]);
+  const stages = use_resource(async () => (stages_client ? (await stages_client.list_stages()).stages : []), [stages_client], { watch: data_watch });
 
   function remove(item: Item): void {
     confirm_delete(`Delete ${item.title}?`, "It can be brought back from its history.", () => succeeds(() => calls().delete_item(item.id)));
   }
 
   const columns: TableColumn<Item>[] = [
-    { label: "Title", cell: (item) => item.title, sort: (item) => item.title.toLowerCase() },
+    { label: "Title", cell: (item) => <a href={`#/items/${item.id}`}>{item.title}</a>, sort: (item) => item.title.toLowerCase() },
     { label: "Kind", cell: (item) => kind_labels[item.kind] },
     { label: "Repository", cell: (item) => item.repository, sort: (item) => item.repository.toLowerCase() },
     {
       label: "Issue",
       cell: (item) => {
         const link = issue_link(item);
-        return link ? <a href={link} target="_blank" rel="noreferrer">#{item.issue_number}</a> : "—";
+        return link ? (
+          <a href={link} target="_blank" rel="noreferrer">
+            #{item.issue_number}
+          </a>
+        ) : (
+          "—"
+        );
       },
     },
-    { label: "Stage", cell: (item) => (item.closed_at ? "Closed" : item.stage), sort: (item) => item.stage },
+    { label: "Stage", cell: (item) => (item.closed_at ? "Closed" : stage_label(stages.data ?? [], item.stage)), sort: (item) => item.stage },
     row_actions_column<Item>({
       name: (item) => item.title,
       edit: set_editing,
@@ -111,10 +194,11 @@ export function ItemsView() {
         <SearchBox label="Search items" value={search} on_input={set_search} />
         <Switch label="Show closed items" show_label checked={include_closed} on_change={set_include_closed} />
       </Toolbar>
+      <Inbox />
       <Loaded resource={items}>
         {(list) => {
           const needle = search.trim().toLowerCase();
-          const visible = list.filter((item) => !needle || `${item.title} ${item.repository}`.toLowerCase().includes(needle));
+          const visible = list.filter((item) => item.stage !== "proposed" && (!needle || `${item.title} ${item.repository}`.toLowerCase().includes(needle)));
           return visible.length === 0 ? (
             <Empty title="No items." hint={list.length === 0 ? "Add a feature or bug fix to take it through the stages." : "Nothing matches the search."} />
           ) : (
@@ -125,4 +209,10 @@ export function ItemsView() {
       {editing && <ItemDialog key={editing === "new" ? "new" : editing.id} initial={editing === "new" ? null : editing} on_close={() => set_editing(null)} />}
     </>
   );
+}
+
+// #/items lists them, #/items/<id> opens one.
+export function ItemsView({ parts }: { parts: string[] }) {
+  const id = parts[0];
+  return id && id !== "list" ? <ItemView key={id} id={decodeURIComponent(id)} /> : <ItemsList />;
 }

@@ -77,6 +77,18 @@ other programs. `src/shared/stages/model.ts` holds the fields and the rules the 
 `src/server/default_stages.ts` the default stages. The daemon serves the calls under `/api/stages`, the main process
 passes them on as the `x_dev_stages` bridge, and the web server serves them to admins only; a phone has none.
 
+## Runs
+
+A run is a row in `runs` (`src/shared/runs/`): the stage, its state, the model, the agent's session id, the commit and
+status sheet it started from, its input, its transcript, its report and the stage that report names next, its
+questions and answers, and its cost. `src/server/runner.ts` starts one at a time: it makes the item's worktree, writes
+the stage as a JSON agent definition and an MCP config beside the runner's settings, runs `claude -p` through X-Libs
+`run_program`, reads the stream-json output into the transcript with `read_stream_line`, and on the result either
+waits for answers, moves the item to the stage its report names, or fails the run saying why. `src/server/run_mcp.ts`
+is the run's own MCP server on 127.0.0.1, each run reaching only its item through a token. Proposals are items at the
+`proposed` stage with the item and run they came from; a proposal whose title is close to an open item's is added to
+that item instead.
+
 ## History
 
 `src/shared/history/store.ts` keeps a version of every item a write touches through X-Libs `create_history`, one

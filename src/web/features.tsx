@@ -30,4 +30,4 @@ export interface PageFeature {
   settings: (props: FeatureSettingsProps) => SettingsSection[];
 }
 
-export const page_features: PageFeature[] = [{ id: "items", label: "Items", pages: [{ id: "list", label: "Items" }], view: () => <ItemsView />, settings: () => [] }];
+export const page_features: PageFeature[] = [{ id: "items", label: "Items", pages: [{ id: "list", label: "Items" }], view: (parts) => <ItemsView parts={parts} />, settings: () => [] }];

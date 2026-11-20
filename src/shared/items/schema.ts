@@ -17,10 +17,19 @@ export const items = sqliteTable(
     // The GitHub repository as owner/name, such as x-tech-laboratories/X-Dev.
     repository: text().notNull(),
     issue_number: integer(),
-    // The stage the item is at, such as "plan".
+    // What the item asks for, as the issue's body would say it.
+    body: text().notNull().default(""),
+    // The stage the item is at, such as "plan"; "proposed" for a proposal waiting in the inbox, "done" after the last.
     stage: text().notNull().default("triage"),
     // The status sheet's sections as JSON, kept current by every stage.
     status: text().notNull().default("{}"),
+    // What the user wants the next run to know, handed to it and then kept for the record.
+    notes: text().notNull().default(""),
+    // The git branch the item's worktree is on, set by its first run.
+    branch: text().notNull().default(""),
+    // The item and run that proposed it, for a proposal.
+    source_item_id: text(),
+    source_run_id: text(),
     created_at: text().notNull(),
     closed_at: text(),
   },

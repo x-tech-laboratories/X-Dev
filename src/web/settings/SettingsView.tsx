@@ -16,20 +16,24 @@ import { SyncSettings } from "@x-tech-laboratories/x-libs/web/react/sync_setting
 import type { DesktopSettings } from "../../shared/desktop.ts";
 import { data_watch, page, set_setting, show_error, use_settings } from "../api.ts";
 import { page_features } from "../features.tsx";
+import { RepositoriesSettings, RunSettings } from "../stages/RunnerSettings.tsx";
 import { StagesSettings } from "../stages/StagesSettings.tsx";
 
 // ── Stages ───────────────────────────────────────────────────────────────────
 
-// Shown wherever the page reaches the stage files: the desktop app's daemon, or the server for an admin.
+// The stages wherever the page reaches their files, and the runner on the desktop, whose daemon runs the agents.
 function pipeline_category(): SettingsCategory[] {
-  const { stages } = page();
-  if (!stages) return [];
-  return [
-    {
-      heading: "Pipeline",
-      sections: [{ id: "stages", heading: "Stages", hint: "The steps every item goes through, in order, each run by an agent on its own model.", content: <StagesSettings stages_client={stages} /> }],
-    },
+  const { stages, runner } = page();
+  const sections: SettingsSection[] = [
+    ...(stages ? [{ id: "stages", heading: "Stages", hint: "The steps every item goes through, in order, each run by an agent on its own model.", content: <StagesSettings stages_client={stages} /> }] : []),
+    ...(runner
+      ? [
+          { id: "repositories", heading: "Repositories", hint: "Where each repository's checkout is on this computer; each item's runs work in a worktree of it.", content: <RepositoriesSettings runner={runner} /> },
+          { id: "runs", heading: "Runs", hint: "How this computer runs each stage's agent.", content: <RunSettings runner={runner} /> },
+        ]
+      : []),
   ];
+  return sections.length ? [{ heading: "Pipeline", sections }] : [];
 }
 
 // ── History ──────────────────────────────────────────────────────────────────
