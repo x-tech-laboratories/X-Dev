@@ -12,17 +12,15 @@ function say(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
-// Calls one of the run's X-Dev tools over its MCP config, as the agent would.
+// Calls one of the run's X-Dev tools as the agent would, with the address and token in its environment.
 async function tool(name, args) {
-  const config = JSON.parse(readFileSync(option("--mcp-config"), "utf8")).mcpServers["x-dev-run"];
-  const response = await fetch(config.url, {
+  const response = await fetch(`${process.env.X_DEV_RUN_URL}/tool/${name}`, {
     method: "POST",
-    headers: { ...config.headers, "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-06-18" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    headers: { "x-dev-run": process.env.X_DEV_RUN_TOKEN, "content-type": "application/json" },
+    body: JSON.stringify(args),
   });
-  const text = await response.text();
-  const data = /^data: (.+)$/m.exec(text)?.[1] ?? text;
-  return JSON.parse(data).result;
+  const answer = await response.json();
+  return answer.error ? `error: ${answer.error}` : String(answer.result);
 }
 
 const report = (next) => `Done.\n\n## Plan handoff\n**Next:** ${next}\n**Done:** - planned\n**Decisions:** none\n**Work:** none\n**Open questions:** None\n**Brief for next stage:** build it`;
@@ -35,7 +33,7 @@ if (input.includes("STATUS")) await tool("update_item_status", { changes: { curr
 if (input.includes("PROPOSE")) {
   for (const title of ["Faster board drawing", "Another idea entirely", "A third proposal here", "A fourth proposal now"]) {
     const result = await tool("propose_item", { title, why: "It came up." });
-    say({ type: "assistant", message: { content: [{ type: "text", text: result.content[0].text }] } });
+    say({ type: "assistant", message: { content: [{ type: "text", text: result }] } });
   }
 }
 
