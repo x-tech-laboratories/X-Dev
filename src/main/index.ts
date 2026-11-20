@@ -1,8 +1,9 @@
-// The desktop app's window: Electron's main process, which shows X-Dev, keeps its tray icon and its login entry, and
-// leaves the work to the daemon in src/daemon, reached over a Unix socket.
+// The desktop app's window, tray and login entry, leaving the work to this computer's daemon or one chosen elsewhere.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
+import { watchFile } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, screen, shell, Tray } from "electron";
@@ -11,12 +12,22 @@ import { bring_to_front, first_argument, hold_single_instance } from "@x-tech-la
 import type { Implementation, IpcMainEventLike } from "@x-tech-laboratories/x-libs/electron/bridge";
 import { create_app_tray } from "@x-tech-laboratories/x-libs/electron/tray";
 import { create_window, is_app_page } from "@x-tech-laboratories/x-libs/electron/window";
-import { call_daemon, daemon_log_path, daemon_socket_path, follow_daemon_events, start_daemon } from "@x-tech-laboratories/x-libs/local_daemon";
+import { Notifier } from "@x-tech-laboratories/x-libs/agent/desktop_notify";
+import { create_certificate_trust } from "@x-tech-laboratories/x-libs/certificates";
+import { connection_file_storage } from "@x-tech-laboratories/x-libs/connection_file_storage";
+import { create_connections } from "@x-tech-laboratories/x-libs/connections";
+import { create_daemon_link } from "@x-tech-laboratories/x-libs/daemon_link";
+import { backup_method_names } from "@x-tech-laboratories/x-libs/backup_protocol";
+import { call_daemon, daemon_log_path, daemon_socket_path, start_daemon } from "@x-tech-laboratories/x-libs/local_daemon";
 import { certificate_method_names } from "@x-tech-laboratories/x-libs/certificate_protocol";
 import { local_mcp_method_names } from "@x-tech-laboratories/x-libs/local_mcp_protocol";
 
-import { certificate_bridge, desktop_bridge, device_bridge, dev_bridge, dev_events, local_mcp_bridge, runner_bridge, stages_bridge } from "../shared/bridge.ts";
+import { backup_bridge, certificate_bridge, connection_bridge, desktop_bridge, device_bridge, dev_bridge, dev_events, local_mcp_bridge, remote_access_bridge, runner_bridge, stages_bridge } from "../shared/bridge.ts";
 import type { DesktopMethods, DesktopSettings } from "../shared/desktop.ts";
+import { read_pull_request } from "../shared/items/github.ts";
+import { remote_access_method_names } from "../shared/remote_access.ts";
+import { pull_request_snapshots, watch_notices, type RunSnapshot } from "../shared/runs/notices.ts";
+import type { StageList } from "../shared/stages/model.ts";
 import { route_of_link } from "../shared/links.ts";
 import { device_method_names, is_read_only } from "../shared/page_api.ts";
 import { runner_method_names } from "../shared/runs/runner.ts";
@@ -58,19 +69,40 @@ function ensure_daemon(): Promise<unknown> {
   });
 }
 
+// ── Connections ──────────────────────────────────────────────────────────────
+
+// Certificates the user trusted, read again whenever the daemon saves the list, so calls to another computer honour them.
+const certificates_file = join(profile, "trusted-certificates.json");
+const trust_certificates = (): void => void create_certificate_trust({ file: certificates_file, use_in_node: true });
+trust_certificates();
+watchFile(certificates_file, { interval: 2000 }, trust_certificates);
+
+// This computer's daemon, and daemons on other computers each signed in once with a token of this device's own.
+const connections = create_connections({ storage: connection_file_storage(join(profile, "connections.json")), offers_local: true, device_name: `X-Dev on ${hostname()}` });
+const link = create_daemon_link({ connections, socket_path });
+
+function is_here(): boolean {
+  return connections.current()?.kind !== "remote";
+}
+
+// Calls that belong to this computer whichever daemon the window uses: its sync, certificates, MCP, own settings and who may connect.
+const local_tables = new Set(["device", "certificates", "local_mcp", "daemon", "remote"]);
+
 // Given by the daemon when this process connects, so the window is not told about its own changes.
 let client_id = "";
 
-// One call to the daemon, as the page made it; a change also shows in the tray at once.
+// One call, as the page made it, to this computer's daemon or the chosen one; a change also shows in the tray at once.
 async function call(path: string, args: unknown[]): Promise<unknown> {
-  const result = await call_daemon(socket_path, `/api/${path}`, args, { "x-client-id": client_id });
+  const headers = { "x-client-id": client_id };
+  const result = local_tables.has(path.slice(0, path.indexOf("/"))) ? await call_daemon(socket_path, `/api/${path}`, args, is_here() ? headers : {}) : await link.call(`/api/${path}`, args, headers);
   if (!is_read_only(path.slice(path.lastIndexOf("/") + 1))) void tray.refresh();
   return result;
 }
 
-// Every call in a table, passed on to the daemon under a path of its own.
-function forwarded(names: readonly string[], prefix: string): Record<string, (...args: unknown[]) => Promise<unknown>> {
-  return Object.fromEntries(names.map((name) => [name, (...args: unknown[]) => call(`${prefix}/${name}`, args)]));
+// Every call in a table, passed on under a path of its own.
+function forwarded(names: readonly string[], prefix: string | (() => string)): Record<string, (...args: unknown[]) => Promise<unknown>> {
+  const prefix_now = typeof prefix === "string" ? () => prefix : prefix;
+  return Object.fromEntries(names.map((name) => [name, (...args: unknown[]) => call(`${prefix_now()}/${name}`, args)]));
 }
 
 function get_desktop_settings(): Promise<DesktopSettings> {
@@ -93,13 +125,12 @@ function apply_autostart(settings: DesktopSettings): void {
   );
 }
 
-// Every window hears of the daemon's changes, and comes back to a daemon that stopped, such as one quit from the tray.
+// Every window hears of the chosen daemon's changes, and this computer's daemon starts again when it stopped.
 let is_quitting = false;
 let stop_following = (): void => {};
 
 function follow_daemon(): void {
-  stop_following = follow_daemon_events(
-    socket_path,
+  stop_following = link.follow_events(
     "/api/events",
     (event, data) => {
       if (event === "hello") client_id = data;
@@ -110,7 +141,7 @@ function follow_daemon(): void {
       // A reconnect may have missed changes, so the windows fetch again.
       on_connect: announce_change,
       on_disconnect: () => {
-        if (!is_quitting) void ensure_daemon().catch((error: unknown) => console.error(error));
+        if (!is_quitting && is_here()) void ensure_daemon().catch((error: unknown) => console.error(error));
       },
     },
   );
@@ -120,6 +151,38 @@ function announce_change(): void {
   dev_events.emit(BrowserWindow.getAllWindows(), "changed", null);
   void apply_window_settings().catch(() => undefined);
   void tray.refresh();
+  void remote_notices?.check().catch(() => undefined);
+}
+
+// Another daemon chosen: every window starts again on it, since what the page offers depends on where it runs.
+connections.subscribe(() => {
+  client_id = "";
+  watch_remote_notices();
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.reload();
+});
+
+// ── Notifications from another computer ──────────────────────────────────────
+
+// This computer's daemon tells of its own runs; for a daemon elsewhere the window tells, by the kinds switched on here.
+const notifier = new Notifier({ app_name: "X-Dev", icons: { app: icon_path }, on_error: (message) => console.error(`x-dev notifications: ${message}`) });
+let remote_notices: ReturnType<typeof watch_notices> | null = null;
+let stage_labels = new Map<string, string>();
+
+function watch_remote_notices(): void {
+  remote_notices = null;
+  if (is_here()) return;
+  remote_notices = watch_notices({
+    read_runs: async (run_ids) => {
+      const stages = (await call("stages/list_stages", []).catch(() => null)) as StageList | null;
+      if (stages) stage_labels = new Map(stages.stages.map((stage) => [stage.id, stage.label]));
+      return (await call("call/list_watched_runs", [run_ids])) as RunSnapshot[];
+    },
+    read_pull_requests: async () => pull_request_snapshots((await call("call/list_items", [false])) as Item[], read_pull_request),
+    stage_label: (stage) => stage_labels.get(stage) ?? stage,
+    is_on: async (kind) => (await get_desktop_settings())[`notify_${kind}`],
+    show: (notice) => void notifier.show({ title: notice.title, body: notice.body, key: notice.key, url: notice.url, icon: "app" }),
+  });
+  void remote_notices.check().catch(() => undefined);
 }
 
 // ── Window ───────────────────────────────────────────────────────────────────
@@ -199,6 +262,10 @@ function trusted(event: IpcMainEventLike): boolean {
 function register_bridges(): void {
   const options = { trusted, envelopes: true };
   dev_bridge.handle(ipcMain, forwarded(method_names, "call") as never, options);
+  connection_bridge.handle(ipcMain, connections.methods, options);
+  remote_access_bridge.handle(ipcMain, forwarded(remote_access_method_names, "remote") as never, options);
+  // This computer's backups sit with its sync; another computer's are an admin's, beside its other calls.
+  backup_bridge.handle(ipcMain, forwarded(backup_method_names, () => (is_here() ? "device" : "backup")) as never, options);
   device_bridge.handle(ipcMain, forwarded(device_method_names, "device") as never, options);
   certificate_bridge.handle(ipcMain, forwarded(certificate_method_names, "certificates") as never, options);
   local_mcp_bridge.handle(ipcMain, forwarded(local_mcp_method_names, "local_mcp") as never, options);
@@ -234,6 +301,7 @@ function start_app(): void {
     }
     register_bridges();
     follow_daemon();
+    watch_remote_notices();
     await apply_window_settings().catch(() => undefined);
     // A link the app was opened with, such as a notification's, opens the window on its page.
     show_window(first_argument(process.argv, route_of_link) ?? undefined);

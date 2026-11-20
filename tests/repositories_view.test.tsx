@@ -20,7 +20,7 @@ function as_client(methods: object): unknown {
 }
 
 // The page on a real store, with a runner and a desktop whose calls are recorded.
-function fake_page({ signed_in = true } = {}) {
+function fake_page({ signed_in = true, is_here = true } = {}) {
   const database = new DatabaseSync(":memory:");
   open_store(database);
   const store = bind_methods(() => database, () => undefined);
@@ -48,6 +48,7 @@ function fake_page({ signed_in = true } = {}) {
     device: null,
     runner: as_client(runner) as Client<RunnerMethods>,
     desktop: as_client(desktop) as Client<DesktopMethods>,
+    ...(is_here ? { daemon_is_here: true } : {}),
     on_change: () => () => undefined,
   });
   return { store, runner, desktop };
@@ -91,6 +92,19 @@ describe("the repositories page", () => {
 
     await waitFor(() => expect(runner.add_repository).toHaveBeenCalledWith("/checkouts/X-Libs"));
     expect(await screen.findByRole("link", { name: "x-tech-laboratories/X-Libs" })).toBeTruthy();
+  });
+
+  it("takes a typed folder when the daemon runs on another computer, whose dialog it cannot open", async () => {
+    const { runner, desktop } = fake_page({ is_here: false });
+    render(<App />);
+    go("#/repositories");
+
+    fireEvent.change(await screen.findByLabelText("Checkout folder"), { target: { value: "/checkouts/X-Libs" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add Repository" }));
+
+    await waitFor(() => expect(runner.add_repository).toHaveBeenCalledWith("/checkouts/X-Libs"));
+    expect(screen.queryByRole("button", { name: "Choose…" })).toBeNull();
+    expect(desktop.pick_folder).not.toHaveBeenCalled();
   });
 
   it("forgets a repository after asking", async () => {

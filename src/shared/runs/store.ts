@@ -3,7 +3,7 @@
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
-import { and, desc, eq, isNull, ne, sql, synced_tables } from "@x-tech-laboratories/x-libs/drizzle";
+import { and, desc, eq, inArray, isNull, ne, or, sql, synced_tables } from "@x-tech-laboratories/x-libs/drizzle";
 import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 
 import { define_feature, drizzle_of, new_id } from "../feature.ts";
@@ -14,6 +14,7 @@ import { can_retry } from "./attempts.ts";
 import { migrations } from "./migrations/index.ts";
 import { gates_cleared, type GateOverride, type GateResult } from "../gates/model.ts";
 import { gate_marks, needs_input, report_summary, type Interjection, type Question, type Run, type RunState, type RunSummary, type StageRun, type TokenCounts } from "./model.ts";
+import type { RunSnapshot } from "./notices.ts";
 import { runs, runs_tables } from "./schema.ts";
 
 // ── Reading ──────────────────────────────────────────────────────────────────
@@ -235,6 +236,18 @@ export const runs_feature = define_feature({
         .orderBy(desc(runs.started_at))
         .all()
         .map(summary_of),
+    // The runs under way and the ones named, as notices compare them from one change to the next.
+    list_watched_runs: (database: SqlDatabase, run_ids: string[]): RunSnapshot[] => {
+      const named = [...new Set(run_ids)];
+      const under_way = eq(runs.state, "running");
+      return drizzle_of(database)
+        .select({ id: runs.id, item_id: runs.item_id, item_title: items.title, stage: runs.stage, state: runs.state, proposals: runs.proposals, report: runs.report, error: runs.error, questions: runs.questions })
+        .from(runs)
+        .innerJoin(items, eq(items.id, runs.item_id))
+        .where(named.length ? or(under_way, inArray(runs.id, named)) : under_way)
+        .all()
+        .map(({ report, questions, ...row }) => ({ ...row, state: row.state as RunState, summary: report_summary(report), question: (JSON.parse(questions) as Question[])[0]?.question ?? "" }));
+    },
     list_recent_runs: (database: SqlDatabase, limit: number): Run[] => drizzle_of(database).select().from(runs).orderBy(desc(runs.started_at)).limit(limit).all().map(as_run),
     update_run_report: (database: SqlDatabase, id: string, report: string): void => {
       const run = find_run(database, id);

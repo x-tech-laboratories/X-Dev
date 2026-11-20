@@ -6,8 +6,11 @@ X-Dev takes features and bug fixes through a fixed set of stages, such as plan, 
 coding agent run per stage. You start each stage yourself; each run sees only what its stage needs and ends by saving a
 report for the next one. [docs/design.md](docs/design.md) sets out the whole design.
 
-It runs as a web page served by your own server, as a desktop app and as an Android app; the desktop and Android apps
-keep their own copy of the data, work offline, and sync with the server whenever it can be reached.
+It runs as a desktop app whose daemon, "This computer", holds the checkouts and the Claude login and runs the agents.
+That daemon can let other devices connect: a browser, the Android app and the desktop app on another computer then work
+on it as a remote daemon, signed in as an admin, and can start and answer runs there. It also runs as a web server, and
+the desktop app's data syncs with a server, so items, runs and reports are alike everywhere while worktrees and stage
+files stay on the computer that runs the agents.
 
 What it does so far:
 
@@ -82,7 +85,8 @@ npm run dev               # the desktop app, with its profile in dev-data/deskto
 
 `npm run build` type-checks and builds the page into `out/web`; `npm start` serves it. `npm run build:desktop` builds
 the desktop app into `out/`, and `npm run build:android` builds the phone's page and copies it into `android/`
-(build the app itself in `nix develop .#android` with `cd android && ./gradlew assembleDebug`).
+(build the app itself in `nix develop .#android` with `cd android && ./gradlew assembleDebug`; CI builds the same debug
+package on every pull request). The phone keeps no data of its own: it works on the daemon it connects to.
 
 ## Configuration
 
@@ -112,8 +116,9 @@ them. A dev run (`npm run dev`, `npm run dev:server`) keeps its own stages under
 
 ## Runs
 
-Runs start from the desktop app, whose daemon holds the checkouts. On the **Repositories** page choose each checkout's
-folder, or type it in a browser; an item's first run makes its worktree there, at
+Runs start on the daemon that holds the checkouts: from its own desktop app, or from any device connected to it (see
+[Other devices](#other-devices)). On the **Repositories** page choose each checkout's folder, or type its path from a
+browser, a phone or a window connected from another computer; an item's first run makes its worktree there, at
 `.claude/worktrees/item-<issue or id>` on the branch `worktree-item-<issue or id>`, from the latest default branch.
 **Settings → Pipeline → Runs** sets how the agents' actions are approved (auto, checking each one, unless set), the
 `claude` program, and the small model that fills in described items.
@@ -164,7 +169,32 @@ daemon's log is `~/.local/state/x-dev/daemon.log`.
 
 The daemon tells you, through desktop notifications, when a run finishes, fails, asks questions or makes proposals,
 and when the checks on an item's pull request finish; clicking one opens the item. **Settings → Notifications** turns
-each kind on or off for this computer. A browser and a phone show none, since runs happen on the desktop.
+each kind on or off for this computer. A window connected to another computer's daemon shows that daemon's notices
+itself, by the same switches. The Android app shows them while it is open or in the background, since a phone has no
+daemon of its own; once Android has closed it, nothing arrives until it opens again. A browser shows none.
+
+## Other devices
+
+**Settings → This device → Other devices**, in the desktop app on the computer that holds the checkouts, turns on
+**Let other devices connect**: the daemon then also listens on the address and port given there (0.0.0.0:7760 unless
+set), behind the same sign-in as the web server, and serves the page to a browser. Add an admin there first, with a
+name and a password of at least 10 characters; they are kept hashed in `remote-admins` in the profile folder, readable
+by you alone, and an admin can add other users on **Users**. Give a certificate and key file to serve https; without
+them the daemon speaks plain http, which only a VPN or an https reverse proxy in front should carry, and the Android app
+refuses plain http to anything but itself.
+
+Another computer's desktop app, or the Android app, adds the daemon under **Settings → Connections** with its address
+and an admin's name and password, which gives the device a token of its own, listed on **Your account**; the desktop
+app then switches between This computer and the daemons it knows there, and opens on the one it used last. A device
+signed in as an admin can do everything the computer's own window does: see the board, items, runs and reports live,
+add and describe items, start a run, answer a waiting run, send an item back, discard a run, take or drop proposals,
+edit stage files, and add checkouts by typing their path. It cannot change which `claude` and `gh` programs the daemon
+starts or how freely their actions are approved, which change only on that computer; signing `gh` in from elsewhere
+gives the code to enter on GitHub's device page from that device. A user who is not an admin sees and edits items but
+starts no runs and changes no stages. Its MCP endpoint offers the same, as [Other programs](#other-programs-the-api-and-mcp) sets out.
+
+A run started on one computer is answered, stopped and discarded only through the daemon that started it, which holds
+its worktree and session; a copy that synced the run says so when asked.
 
 ## Signing in
 
@@ -175,7 +205,7 @@ adds users on **Users**.
 
 ## Sync
 
-In the desktop or Android app, open **Settings → This device → Sync**, enter the server's address, your name and
+In the desktop app, open **Settings → This device → Sync**, enter the server's address, your name and
 password, and choose whether this device starts from the server's data or the server from this device's. The copy that
 loses is backed up first. After that, changes go both ways within seconds, and a device that is offline catches up once
 it is back. The device gets a token of its own, listed on **Your account**, which Stop syncing gives back.
@@ -189,9 +219,7 @@ belongs to that device or server and is never synced.
 
 - **Desktop:** in `backups/` beside the database in the profile folder. A restore backs up the current data first and
   stops sync, so you choose again which copy wins.
-- **Android:** in a folder you pick once under **Settings → Backups → Backup folder**, such as Documents, where file
-  managers and sync apps reach them. Until one is picked there are none, and daily backups wait. A restore backs up the
-  current data first and stops sync.
+- **Another computer's daemon:** an admin connected to it sees and takes its backups as on that computer.
 - **Server:** in `backups_folder`. Only an admin sees them. A restore from the page backs up the current data first,
   then the server stops and its service starts it again on the backup; every device then chooses which copy wins.
 
@@ -204,25 +232,42 @@ Changes older than **Settings → General → History** (180 days unless set) ar
 
 ## Other programs: the API and MCP
 
-Every call the page makes is open to other programs on the server, behind a token made on **Your account** and sent as
+Every control of the page is open to other programs, such as another Claude Code session, on the server and on a desktop
+daemon that lets other devices connect, behind a token made on **Your account** and sent as
 `Authorization: Bearer <token>`:
 
-- **API:** `POST /api/call/<method>` with the arguments as a JSON list in order, or by name as a JSON object.
-  `GET /api/openapi.json` describes every call.
-- **MCP:** `/api/mcp` serves every call as a tool over streamable HTTP, the calls that only read marked read-only. To
-  add it to Claude Code:
+- **API:** `POST /api/call/<method>` for the data, `/api/stages/<method>` for the stage files and `/api/runner/<method>`
+  for runs, checkouts and GitHub, with the arguments as a JSON list in order; the data calls also take them by name as a
+  JSON object. `GET /api/openapi.json` describes every call.
+- **MCP:** `/api/mcp` serves every call as a tool over streamable HTTP, the calls that only read marked read-only. A
+  session adds an item with `add_item`, which also adds a checkout given by its path and finds or opens the GitHub issue,
+  as the New item form does; `describe_item` turns a rough note into a draft for it first. The tools that start or undo
+  an agent's work (`start_run`, `answer_run`, `discard_run`) or change the computer that runs the agents (`add_repository`,
+  `save_stage` and the other stage tools) say so in their descriptions.
 
-  ```sh
-  claude mcp add --transport http x-dev https://<server>/api/mcp --header "Authorization: Bearer <token>"
-  ```
+What a token reaches is what its user reaches: an admin's every tool, another user's the data tools alone (adding,
+editing and closing items with `save_item`, but no runs, stages, checkouts or GitHub), and a token made read-only on
+**Your account** only the tools that read. Tokens have no narrower scope, such as adding items only. Wherever
+it is reached from, the runner refuses to change `claude_program`, `gh_program` or the permission mode, which change
+only in X-Dev's own window on the computer that runs the agents.
 
-The desktop app can serve the same MCP tools itself, on its own data and with no server or token: turn on **Settings →
-MCP server**, and while its daemon runs it listens on `http://127.0.0.1:3921/mcp` (the port is set there too), reachable
-only from the same computer:
+To add the server to Claude Code:
+
+```sh
+claude mcp add --transport http x-dev https://<server>/api/mcp --header "Authorization: Bearer <token>"
+```
+
+The desktop app can serve the same tools itself, on its own data and with no token: turn on **Settings → MCP server**,
+and while its daemon runs it listens on `http://127.0.0.1:3921/mcp` (the port is set there too), reachable only from
+the same computer. Every program on this computer can then start agent runs through it, so leave it off on a computer
+other people sign in to.
 
 ```sh
 claude mcp add --transport http x-dev http://127.0.0.1:3921/mcp
 ```
+
+On a computer with a managed MCP config (`/etc/claude-code/managed-mcp.json`), Claude Code refuses `claude mcp add`;
+add the server to that file instead, under `mcpServers`, with the same `type`, `url` and `headers`.
 
 A change made through either reaches every open page and device as if made there.
 

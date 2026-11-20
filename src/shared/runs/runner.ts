@@ -79,6 +79,10 @@ export interface RunnerMethods {
   retry_run: (run_id: string, options: RetryOptions) => Promise<string>;
   answer_run: (run_id: string, answers: string) => void;
   discard_run: (run_id: string) => Promise<void>;
+  // Saves a new item as the New item form does: its checkout added when given, its issue found or opened when it has none.
+  add_item: (input: NewItem) => Promise<AddedItem>;
+  // Takes a proposal into Triage and finds or opens its issue.
+  take_proposal: (item_id: string) => Promise<AddedItem>;
   // A draft item from free text, filled in by an agent for the user to check; nothing is saved.
   describe_item: (text: string) => Promise<ItemDraft>;
   // Links an item with no issue to an open one that matches it, or opens one.
@@ -108,6 +112,20 @@ export interface ItemDiff {
 export interface LineCounts {
   additions: number;
   deletions: number;
+}
+
+// A new item; its repository is owner/name or the folder of a checkout, and a checkout given is added to Repositories.
+export type NewItem = Omit<ItemInput, "id"> & { checkout?: string };
+
+export interface AddedItem {
+  id: string;
+  repository: string;
+  // The issue it was linked to or opened, or null when it was given one or GitHub could not be reached.
+  issue: IssueLink | null;
+  // Whether its checkout was added to Repositories.
+  checkout_added: boolean;
+  // Why the issue could not be found or opened; the item is saved all the same.
+  problem: string;
 }
 
 // A described item, with the folder of its repository's checkout on this computer when one was found.
@@ -145,6 +163,8 @@ export const runner_method_names = [
   "retry_run",
   "answer_run",
   "discard_run",
+  "add_item",
+  "take_proposal",
   "describe_item",
   "link_issue",
   "sync_github",

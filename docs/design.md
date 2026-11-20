@@ -413,6 +413,26 @@ five cents in all, through a Node script that spoke the protocol the runner spea
   next message is answered as usual.
 - Each `result`'s `total_cost_usd` is the session's cost so far, not the turn's.
 
+## Checked for milestone 7
+
+- A daemon that lets other devices connect, signing in, the runner's calls through it with the admin check, the
+  settings it refuses from elsewhere and the open CORS are tested with Fastify on 127.0.0.1 and a stand-in runner that
+  starts nothing; a real run started from another device was not tried.
+- Two copies of the store converge on items, runs with their questions, answers and reports, and proposals, through
+  the sync engine directly rather than over the network; a daemon that both serves sync to others and syncs with a
+  server, passing changes along, is not tested.
+- The phone's and browser's calls to a daemon, its event stream, the first-connection screen, the Connections and
+  Other devices settings and phone notices are tested in jsdom against stand-ins; the desktop app's switch between
+  daemons and its notices for a daemon elsewhere are not covered by tests.
+- The Android debug package was run in a headless Android 16 emulator against a daemon on the same computer, reached
+  over `adb reverse` with plain http to localhost and stand-ins for `claude` and `gh`: adding the daemon, the board in
+  the phone layout, starting a run, answering its question, and a run's notice arriving with the app in the background
+  and opening the item when tapped. A real phone, https to a daemon on another computer and a trusted self-signed
+  certificate were not tried.
+- Every control is an MCP tool on the server and on the daemon's local endpoint; adding an item from a checkout's
+  folder, opening its issue, starting its run and answering its question are tested through the MCP endpoints
+  themselves, with stand-ins for `claude` and `gh`.
+
 ## Checked for milestone 5
 
 - The labels, comments, body, closing, pull request and checks are tested against a stand-in for

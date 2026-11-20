@@ -1,9 +1,10 @@
-// The small form pieces the lists share: a toolbar form that adds an item by name, a name renamed in place, and the
-// Save and Cancel buttons under a form or a dialog.
+// The small form pieces the lists share: a toolbar form that adds an item by name, a name renamed in place, the
+// Save and Cancel buttons under a form or a dialog, and a checkout's folder.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { useState, type KeyboardEvent } from "react";
+import { PathInput } from "@x-tech-laboratories/x-libs/web/react/controls";
 
 // ── Adding ───────────────────────────────────────────────────────────────────
 
@@ -99,4 +100,21 @@ export function DialogButtons({ can_save = true, on_save, on_cancel }: { can_sav
       </button>
     </>
   );
+}
+
+// ── Folders ──────────────────────────────────────────────────────────────────
+
+interface FolderFieldProps {
+  label: string;
+  placeholder: string;
+  value: string;
+  on_change: (value: string) => void;
+  // The system's folder dialog, given only where the daemon runs on this computer; the path is typed anywhere else.
+  pick?: ((current: string) => Promise<string | null>) | undefined;
+}
+
+// A checkout's folder on the computer that runs the agents, chosen in a dialog there or typed from elsewhere.
+export function FolderField({ label, placeholder, value, on_change, pick }: FolderFieldProps) {
+  if (pick) return <PathInput label={label} placeholder={placeholder} value={value} on_change={on_change} pick={pick} browse_label="Choose…" />;
+  return <input type="text" aria-label={label} spellCheck={false} autoCapitalize="none" placeholder={placeholder} value={value} onChange={(event) => on_change(event.currentTarget.value)} />;
 }
