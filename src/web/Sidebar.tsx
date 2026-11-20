@@ -1,4 +1,4 @@
-// The sidebar: each feature folding open onto its pages, History below them, and Settings at the foot.
+// The sidebar: each feature folding open onto its pages, then History last, and Settings at the foot.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
@@ -12,7 +12,7 @@ import type { PageFeature } from "./features.tsx";
 // ── Rows ─────────────────────────────────────────────────────────────────────
 
 // A feature's row has no parent; a page's row names its feature as parent and has the id "<feature>/<page>".
-// A feature with one page is only its own row.
+// A feature with one page is only its own row, and History follows the features as the list's last row.
 interface SidebarRow {
   id: string;
   parent_id: string | null;
@@ -22,10 +22,13 @@ interface SidebarRow {
 }
 
 function rows_of(features: PageFeature[]): SidebarRow[] {
-  return features.flatMap((feature, feature_index) => [
-    { id: feature.id, parent_id: null, position: feature_index, label: feature.label, href: `#/${feature.id}` },
-    ...(feature.pages.length < 2 ? [] : feature.pages).map((page, page_index) => ({ id: `${feature.id}/${page.id}`, parent_id: feature.id, position: page_index, label: page.label, href: `#/${feature.id}/${page.id}` })),
-  ]);
+  return [
+    ...features.flatMap((feature, feature_index) => [
+      { id: feature.id, parent_id: null, position: feature_index, label: feature.label, href: `#/${feature.id}` },
+      ...(feature.pages.length < 2 ? [] : feature.pages).map((page, page_index) => ({ id: `${feature.id}/${page.id}`, parent_id: feature.id, position: page_index, label: page.label, href: `#/${feature.id}/${page.id}` })),
+    ]),
+    { id: "history", parent_id: null, position: features.length, label: "History", href: "#/history" },
+  ];
 }
 
 function is_id_list(value: unknown): value is string[] {
@@ -50,25 +53,18 @@ export function Sidebar({ features, section, page }: SidebarProps) {
   const selected_id = collapsed.has(section) || single ? section : `${section}/${page}`;
 
   return (
-    <>
-      <div className="sidebar-nav">
-        <a href="#/history" className={section === "history" ? "tree-row active" : "tree-row"} aria-current={section === "history" ? "page" : undefined}>
-          <span className="tree-label">History</span>
-        </a>
-      </div>
-      <Tree
-        items={rows_of(features)}
-        label="Sections"
-        render_item={(row) => row.label}
-        name_of={(row) => row.label}
-        collapsed={collapsed}
-        on_collapsed_change={(next) => set_collapsed_ids([...next])}
-        selected_id={selected_id}
-        on_select={(row) => {
-          window.location.hash = row.href.slice(1);
-        }}
-      />
-    </>
+    <Tree
+      items={rows_of(features)}
+      label="Sections"
+      render_item={(row) => row.label}
+      name_of={(row) => row.label}
+      collapsed={collapsed}
+      on_collapsed_change={(next) => set_collapsed_ids([...next])}
+      selected_id={selected_id}
+      on_select={(row) => {
+        window.location.hash = row.href.slice(1);
+      }}
+    />
   );
 }
 

@@ -263,7 +263,16 @@ Other backends, such as OpenCode, can be added as plugins later.
 
 ## Pages
 
-- **Board**: a column per stage and a card per item in its stage's column; the card merges the item
+- **Items**: one page in two views, **Board** and **List**, picked by a segmented switch at the end of its toolbar.
+  The pick is kept on the device and opens next time; the page opens on the board until one is picked, and
+  `#/items/board` and `#/items/list` name a view (the old `#/board` opens the board). Both views share one toolbar
+  and its state, kept when switching: Add Item, search, the repository filter, Show finished items and Group by
+  repository (lanes on the board, a heading per repository in the list). The Inbox above holds the proposals waiting
+  for the user, one line each, once above either view, and is just its heading when empty. Show finished items adds
+  the items at Done, and in the list the closed ones too, which stay off the board.
+- **Items, as a list**: a table of title, kind, repository, issue and stage, each row with edit, history, close or
+  reopen and delete; the title opens the item.
+- **Items, as a board**: a column per stage and a card per item in its stage's column; the card merges the item
   and that stage's run. It names the repository and issue and the item, then the run's state, the
   first line of its report or what failed, its model, changed lines, cost and age, its gates, a
   waiting run's question with its choices, the pull request and its checks, and, once it has runs, a
@@ -271,11 +280,8 @@ Other backends, such as OpenCode, can be added as plugins later.
   item, send it back to an earlier stage and discard its last run. Clicking a card, or Enter on it,
   opens the item at that run; dragging it to an earlier column, or Alt and Left, sends it back after
   a confirm, and no later column takes a dragged card, since stages move on only by a run's report.
-  Cards filter by repository and words, can be grouped into a lane per repository, and finished
-  items show in a Done column when asked; on a phone the columns stack. The Inbox above holds the
-  proposals waiting for the user, one line each, and is just its heading when empty. The board is
-  the page X-Dev opens on and fills the window, scrolling inside itself with its column heads in
-  view. X-Dev draws it with X-Libs' `Board` widget; the card (`src/web/board/ItemCard.tsx`) draws
+  Finished items show in a Done column when asked; on a phone the columns stack. The board fills
+  the window, scrolling inside itself with its column heads in view. X-Dev draws it with X-Libs' `Board` widget; the card (`src/web/board/ItemCard.tsx`) draws
   only what goes inside the widget's card.
 - **New item**: two ways in, side by side. **Describe it** takes free text, such as a pasted bug report
   or a few lines of an idea, and an agent fills in the form from it: title, feature or bug, the
@@ -294,7 +300,7 @@ Other backends, such as OpenCode, can be added as plugins later.
   choosing the checkout's folder, its owner/name read from its git remote. They are a list of what
   X-Dev works on, like X-Backups' repositories, so they have a page of their own rather than a
   section of Settings.
-- **History**, and **Settings** with Stages, GitHub (signing `gh` in and out) and Runs, then the standard
+- **History**, the last row of the sidebar's list after Items, Runs and Repositories, and **Settings** in the sidebar's foot with Stages, GitHub (signing `gh` in and out) and Runs, then the standard
   Sync, Backups, Notifications, Import and export, Plugins, Users and Tokens.
 
 Notifications: a run finished, failed, asked questions or made proposals; a pull request's checks

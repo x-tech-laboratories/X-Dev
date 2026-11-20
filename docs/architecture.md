@@ -84,8 +84,11 @@ A feature is two folders:
   sidebar lists under the feature and the view picks by `#/<feature>/<page>`, and a function giving its sections for the
   Settings page.
 
-The sidebar (`src/web/Sidebar.tsx`) is an X-Libs `Tree`: each feature folding open onto its pages, then History, then
-Settings at the foot; a feature with one page is a single row. Items is the first feature and the page the app opens on.
+The sidebar (`src/web/Sidebar.tsx`) is an X-Libs `Tree`: each feature folding open onto its pages, then History as the
+last row, then Settings at the foot; a feature with one page is a single row. Items is the first feature and the page
+the app opens on; `#/board` from before the board joined it opens `#/items/board`. A feature's `contained` and
+`view_key` take the route's parts, so the items page's board and list keep the window still and share one view whose
+state survives a switch, while an item's page does neither.
 
 `src/shared/store.ts` and `src/web/features.tsx` list the features; nothing else knows them.
 
@@ -137,15 +140,18 @@ put there, kept on the item as JSON in the `github` column, so a look with nothi
 pull request and its checks are the `pull_request` column. A run held only by its `ci` gate is checked again whenever
 the checks change, and moves on once they pass.
 
-## Board
+## Items page and board
 
-`src/web/board/index.tsx` draws the board from four reads: the open items, `list_stage_runs` (the latest run of each
-stage on each item, with a line from its report through `report_summary`, its cost, gates and questions), the stage
-files, and the runner's `list_run_changes` for the lines each finished run changed. It hands them to X-Libs' `Board`:
+`src/web/items/index.tsx` holds the items page: one read of the items and one of the stages, the toolbar and filters,
+the Inbox, and `use_pref("x-dev-items-layout")` for the view kept on the device; it hands the filtered items to the
+list (an X-Libs `DataTable`, `groups` per repository when grouped) or to the board.
+`src/web/board/index.tsx` draws the board from those items and stages and three reads of its own: `list_stage_runs` (the latest run of each
+stage on each item, with a line from its report through `report_summary`, its cost, gates and questions), the
+runner's `get_runner` for whether a run holds the slot, and its `list_run_changes` for the lines each finished run changed. It hands them to X-Libs' `Board`:
 a column per stage, a lane per repository when grouped, and each item an `ItemCard` (`src/web/board/ItemCard.tsx`) in
 the column of its stage, which takes the item, the stages and its runs and draws only the inside of the widget's card.
-`can_move` allows only earlier columns (`is_send_back`), and `on_move` asks before calling `send_item_back`. The board
-page is a `contained` feature, so the Shell keeps the window still and the board scrolls inside the main pane.
+`can_move` allows only earlier columns (`is_send_back`), and `on_move` asks before calling `send_item_back`. The items
+page is `contained`, so the Shell keeps the window still and the board scrolls inside the main pane.
 
 ## Runs page and diffs
 

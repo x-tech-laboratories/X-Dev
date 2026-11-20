@@ -5,8 +5,7 @@
 import type { ReactNode } from "react";
 import type { SettingsSection } from "@x-tech-laboratories/x-libs/web/react/layout";
 
-import { BoardView } from "./board/index.tsx";
-import { ItemsView } from "./items/index.tsx";
+import { is_items_layout, ItemsView } from "./items/index.tsx";
 import { RepositoriesView } from "./repositories/index.tsx";
 import { RunsView } from "./runs/index.tsx";
 
@@ -31,13 +30,22 @@ export interface PageFeature {
   pages: FeaturePage[];
   view: (parts: string[]) => ReactNode;
   settings: (props: FeatureSettingsProps) => SettingsSection[];
-  // Keeps the window still so the page's own panes scroll, as the board does.
-  contained?: boolean;
+  // Whether the view at these route parts keeps the window still so its own panes scroll, as the board does.
+  contained?: (parts: string[]) => boolean;
+  // What names one view among the route parts, so moving between parts that name the same view keeps its state.
+  view_key?: (parts: string[]) => string;
 }
 
 export const page_features: PageFeature[] = [
-  { id: "board", label: "Board", pages: [{ id: "lanes", label: "Board" }], view: () => <BoardView />, settings: () => [], contained: true },
-  { id: "items", label: "Items", pages: [{ id: "list", label: "Items" }], view: (parts) => <ItemsView parts={parts} />, settings: () => [] },
+  {
+    id: "items",
+    label: "Items",
+    pages: [{ id: "list", label: "Items" }],
+    view: (parts) => <ItemsView parts={parts} />,
+    settings: () => [],
+    contained: (parts) => !parts[0] || is_items_layout(parts[0]),
+    view_key: (parts) => (!parts[0] || is_items_layout(parts[0]) ? "" : parts.join("/")),
+  },
   { id: "runs", label: "Runs", pages: [{ id: "list", label: "Runs" }], view: () => <RunsView />, settings: () => [] },
   { id: "repositories", label: "Repositories", pages: [{ id: "list", label: "Repositories" }], view: () => <RepositoriesView />, settings: () => [] },
 ];
