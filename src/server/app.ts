@@ -68,6 +68,10 @@ export async function build_app(options: AppOptions): Promise<FastifyInstance> {
   register_error_replies(app);
   // A phone's page calls from an origin of its own with a token, the sign-in included, and a browser sends no cookie across origins.
   await register_open_cors(app);
+  // The event stream writes its own head, so it carries the open origin itself, or a phone never hears of changes.
+  app.addHook("onRequest", async (request, reply) => {
+    if (request.url.split("?")[0] === "/api/events") reply.raw.setHeader("access-control-allow-origin", "*");
+  });
   const accounts = new AccountStore({ database: options.database, app_name: "X-Dev", declared: options.declared, token_prefix: "xf" });
   const admin = { role: accounts.top_role };
   // Backups hold the accounts, stages steer agents and the runner starts them with this computer's rights: admins only.

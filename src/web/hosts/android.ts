@@ -8,7 +8,7 @@ import { App } from "@capacitor/app";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import type { BackupClient } from "@x-tech-laboratories/x-libs/backup_protocol";
 import { create_connections } from "@x-tech-laboratories/x-libs/connections";
-import { keep_phone_notices, type PhoneNotice } from "@x-tech-laboratories/x-libs/phone_notices";
+import { notice_id } from "@x-tech-laboratories/x-libs/phone_notices";
 import { phone_certificates } from "@x-tech-laboratories/x-libs/phone_certificates";
 import { local_connection_storage } from "@x-tech-laboratories/x-libs/web/connection_storage";
 
@@ -41,26 +41,15 @@ export function read_notice_kinds(saved: string | null): Record<NoticeKind, bool
 
 // ── Notices ──────────────────────────────────────────────────────────────────
 
-// A notice shown at once is handed to Android a moment ahead, and dropped once it has shown.
-const show_after_ms = 1000;
-
-function phone_notices(open_route: (route: string) => void): { show: (title: string, body: string, key: string, url: string) => void } {
-  let pending: PhoneNotice[] = [];
-  const notices = keep_phone_notices({
-    plugin: LocalNotifications,
-    read: (now) => (pending = pending.filter((notice) => notice.at > now)),
-    on_tap: (extra) => {
-      const route = route_of_link(extra.url ?? "");
-      if (route) open_route(route);
-    },
-    refresh_delay_ms: 0,
+// Run notices show at once and never ask for exact alarms, which would open a settings screen; a tap opens the item.
+export function phone_notices(plugin: typeof LocalNotifications, open_route: (route: string) => void): { show: (title: string, body: string, key: string, url: string) => void } {
+  void plugin.addListener("localNotificationActionPerformed", (action) => {
+    const route = route_of_link(String((action.notification.extra as { url?: unknown } | undefined)?.url ?? ""));
+    if (route) open_route(route);
   });
-  void notices.ask_permission();
+  void plugin.checkPermissions().then(({ display }) => (display === "granted" || display === "denied" ? undefined : plugin.requestPermissions()));
   return {
-    show: (title, body, key, url) => {
-      pending = [...pending.filter((notice) => notice.key !== key), { key, title, body, at: Date.now() + show_after_ms, extra: { url } }];
-      notices.refresh();
-    },
+    show: (title, body, key, url) => void plugin.schedule({ notifications: [{ id: notice_id(key), title, body, extra: { url }, isExactNotification: false }] }).catch((error: unknown) => console.error("could not show a notice", error)),
   };
 }
 
@@ -91,7 +80,7 @@ export async function android_api(): Promise<PageApi> {
 
   // Notices are worked out here while the app is open, since the phone has no daemon of its own.
   let stage_labels = new Map<string, string>();
-  const shown = phone_notices((route) => (location.hash = route));
+  const shown = phone_notices(LocalNotifications, (route) => (location.hash = route));
   const notices = watch_notices({
     read_runs: async (run_ids) => {
       if (abilities.stages) stage_labels = new Map((await stages.list_stages()).stages.map((stage) => [stage.id, stage.label]));

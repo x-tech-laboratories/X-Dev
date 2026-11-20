@@ -127,6 +127,18 @@ describe("the runner over the network", () => {
     const signed_in = await app.inject({ method: "POST", url: "/api/login", headers: { origin: "https://localhost" }, payload: { name: "root", password, device: "phone" } });
     expect(signed_in.headers["access-control-allow-origin"]).toBe("*");
   });
+
+  it("lets a phone's page follow the change events across origins", async () => {
+    await start();
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const device = (await app.inject({ method: "POST", url: "/api/login", payload: { name: "root", password, device: "phone" } })).json().token as string;
+
+    const stream = new AbortController();
+    const response = await fetch(`http://127.0.0.1:${(app.server.address() as { port: number }).port}/api/events`, { headers: { origin: "https://localhost", authorization: `Bearer ${device}` }, signal: stream.signal });
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    stream.abort();
+  });
 });
 
 describe("the remote runner", () => {

@@ -134,6 +134,22 @@ describe("notices from a daemon elsewhere", () => {
     expect(show).toHaveBeenCalledWith(expect.objectContaining({ kind: "run_asked", title: "Plan has questions: Runs page", body: "Lanes or tabs?", url: "x-dev://items/i1/r1" }));
   });
 
+  it("tell of a waiting run that was answered and ended between two looks, its running passed over", async () => {
+    let runs = [snapshot({ state: "waiting", question: "Lanes or tabs?" })];
+    const read_runs = vi.fn(async () => runs);
+    const show = vi.fn();
+    const watch = watch_notices({ read_runs, read_pull_requests: async () => [], stage_label: label, is_on: () => true, show });
+
+    await watch.check();
+    runs = [snapshot({ state: "failed", error: "A gate failed: status." })];
+    await watch.check();
+    await watch.check();
+
+    expect(read_runs).toHaveBeenNthCalledWith(2, ["r1"]);
+    expect(show).toHaveBeenCalledTimes(1);
+    expect(show).toHaveBeenCalledWith(expect.objectContaining({ kind: "run_failed", title: "Plan failed: Runs page", body: "A gate failed: status." }));
+  });
+
   it("leave out the kinds switched off", async () => {
     let runs = [snapshot({})];
     const show = vi.fn();
