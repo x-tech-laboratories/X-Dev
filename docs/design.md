@@ -102,6 +102,29 @@ item now.
 
 A run's full output stays on the item page for the user; it is never handed to an agent.
 
+## Proposals
+
+Any stage can propose new work it comes across, such as a bug it noticed, a refactor or an
+improvement, instead of doing it. That keeps each item to its own goal and stops one long run from
+building feature after feature.
+
+- The agent calls X-Dev's `propose_item` tool with a title, feature or bug, the repository, why it
+  matters and where it was seen (files, lines). It then carries on with its own stage.
+- The proposal becomes an item at the **Proposed** stage, before Triage, linked to the item and run
+  that raised it. No GitHub issue is made yet, so ideas the user turns down never reach the tracker.
+- Before adding one, `propose_item` looks for an open item or proposal in the same repository with a
+  close title and adds to it instead, so the same idea is not proposed twice.
+- A run may make a few proposals at most (a setting, three unless set); past that the tool refuses,
+  and the agent lists the rest in its report.
+- Proposals wait in an **Inbox** on the board, above the lanes. The user accepts one, which makes its
+  GitHub issue and moves it to Triage, merges it into another item, or drops it. Dropped ones stay in
+  the history.
+- Each stage file tells its agent to propose rather than do anything outside its item's goal, and
+  the `scope` gate catches changes outside the paths the stage may touch. Review lists anything that
+  slipped in and proposes it as its own item; Close proposes the follow-ups left in Known problems.
+- The status sheet's Links section names the proposals an item raised, and each proposal names the
+  item it came from.
+
 ## Gates
 
 Good practice is enforced by checks, not left to the agent's prompt. After a run, X-Dev runs the
@@ -176,7 +199,7 @@ rest. A model is picked from the models the agent backend offers, by alias or ex
 ## The agent backend
 
 A run is given X-Dev's MCP endpoint, limited to the item being run, for `ask_user`,
-`get_item_status` and `update_item_status`.
+`get_item_status`, `update_item_status` and `propose_item`.
 
 Agent backends are provider plugins (`agent_backend`). The bundled one runs Claude Code:
 
@@ -210,14 +233,16 @@ Other backends, such as OpenCode, can be added as plugins later.
   repository and issue; each cell shows that stage's runs for the item: done with a one-line summary
   of its report, running, failed, needs input, or not reached. The current stage's cell is marked and
   holds Run; any cell holds Send back here and, for its last run, Discard. Clicking a cell opens its
-  report. Lanes are grouped by repository and can be filtered, and finished items fold away.
+  report. Lanes are grouped by repository and can be filtered, and finished items fold away. The
+  Inbox above the lanes holds the proposals waiting for the user.
 - **Item**: the issue and its status sheet, then the runs as a timeline, each with its report (editable), its output and
   its cost; the branch's diff; the pull request and its checks; notes for the next run.
 - **Runs**: every run across items, for cost and failures.
 - **History**, and **Settings** with Stages, Repositories, GitHub, Agent backend, then the standard
   Sync, Backups, Notifications, Import and export, Plugins, Users and Tokens.
 
-Notifications: a run finished, failed or asked questions; a pull request's checks finished.
+Notifications: a run finished, failed, asked questions or made proposals; a pull request's checks
+finished.
 
 ## Platforms and daemon
 
@@ -262,7 +287,8 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 1. **Skeleton**: the app from the standard's checklist, with the daemon, store, Shell, Settings and CI,
    on X-Libs.
 2. **Stages**: reading and editing the stage files.
-3. **Runs**: items by hand, running a stage through Claude Code, reports, discard; no GitHub yet.
+3. **Runs**: items by hand, running a stage through Claude Code, reports, discard, questions, the
+   status sheet tools and proposals; no GitHub yet.
 4. **Gates**: the gates and `x-dev check`, then the change checks moved into X-Libs.
 5. **GitHub**: issues, labels, comments, pull requests and checks.
 6. **Board and item pages**, the diff view, notifications.
