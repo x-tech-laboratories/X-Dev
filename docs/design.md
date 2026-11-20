@@ -364,6 +364,11 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 - The phone's and browser's calls to a daemon, its event stream, the first-connection screen, the Connections and
   Other devices settings and phone notices are tested in jsdom against stand-ins; the desktop app's switch between
   daemons and its notices for a daemon elsewhere are not covered by tests.
+- The Android debug package was run in a headless Android 16 emulator against a daemon on the same computer, reached
+  over `adb reverse` with plain http to localhost and stand-ins for `claude` and `gh`: adding the daemon, the board in
+  the phone layout, starting a run, answering its question, and a run's notice arriving with the app in the background
+  and opening the item when tapped. A real phone, https to a daemon on another computer and a trusted self-signed
+  certificate were not tried.
 - Every control is an MCP tool on the server and on the daemon's local endpoint; adding an item from a checkout's
   folder, opening its issue, starting its run and answering its question are tested through the MCP endpoints
   themselves, with stand-ins for `claude` and `gh`.
