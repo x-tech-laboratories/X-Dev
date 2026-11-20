@@ -69,6 +69,14 @@ keeps current. The sheet is one JSON column with fixed sections (`status_section
 time by `update_item_status`, which refuses a sheet over `status_limit` so it stays a summary. `docs/design.md` sets out
 the stages, runs and gates still to come.
 
+## Stages
+
+Stages are files, not rows: `src/server/stage_files.ts` reads and writes the `stage-<id>.md` files in one folder with
+the `yaml` package, so keys and comments it does not know survive, and watches the folder to announce changes made in
+other programs. `src/shared/stages/model.ts` holds the fields and the rules the page shares, and
+`src/server/default_stages.ts` the default stages. The daemon serves the calls under `/api/stages`, the main process
+passes them on as the `x_dev_stages` bridge, and the web server serves them to admins only; a phone has none.
+
 ## History
 
 `src/shared/history/store.ts` keeps a version of every item a write touches through X-Libs `create_history`, one

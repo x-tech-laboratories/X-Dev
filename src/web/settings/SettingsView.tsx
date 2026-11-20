@@ -1,5 +1,5 @@
-// Settings: how long history is kept, each feature's own settings, sync with a server on a device, backups, and the
-// desktop app's tray and background running.
+// Settings: the stages, how long history is kept, each feature's own settings, sync with a server on a device, backups,
+// and the desktop app's tray and background running.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
@@ -16,6 +16,21 @@ import { SyncSettings } from "@x-tech-laboratories/x-libs/web/react/sync_setting
 import type { DesktopSettings } from "../../shared/desktop.ts";
 import { data_watch, page, set_setting, show_error, use_settings } from "../api.ts";
 import { page_features } from "../features.tsx";
+import { StagesSettings } from "../stages/StagesSettings.tsx";
+
+// ── Stages ───────────────────────────────────────────────────────────────────
+
+// Shown wherever the page reaches the stage files: the desktop app's daemon, or the server for an admin.
+function pipeline_category(): SettingsCategory[] {
+  const { stages } = page();
+  if (!stages) return [];
+  return [
+    {
+      heading: "Pipeline",
+      sections: [{ id: "stages", heading: "Stages", hint: "The steps every item goes through, in order, each run by an agent on its own model.", content: <StagesSettings stages_client={stages} /> }],
+    },
+  ];
+}
 
 // ── History ──────────────────────────────────────────────────────────────────
 
@@ -109,6 +124,7 @@ export function SettingsView() {
         {(values) => (
           <SettingsPage
             categories={[
+              ...pipeline_category(),
               { heading: "General", sections: [history_section(values, set_setting)] },
               ...page_features
                 .map((feature) => ({ heading: feature.label, sections: feature.settings({ settings: values, set_setting }) }))

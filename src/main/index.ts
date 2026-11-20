@@ -15,10 +15,11 @@ import { call_daemon, daemon_log_path, daemon_socket_path, follow_daemon_events,
 import { certificate_method_names } from "@x-tech-laboratories/x-libs/certificate_protocol";
 import { local_mcp_method_names } from "@x-tech-laboratories/x-libs/local_mcp_protocol";
 
-import { certificate_bridge, desktop_bridge, device_bridge, dev_bridge, dev_events, local_mcp_bridge } from "../shared/bridge.ts";
+import { certificate_bridge, desktop_bridge, device_bridge, dev_bridge, dev_events, local_mcp_bridge, stages_bridge } from "../shared/bridge.ts";
 import type { DesktopMethods, DesktopSettings } from "../shared/desktop.ts";
 import { route_of_link } from "../shared/links.ts";
 import { device_method_names, is_read_only } from "../shared/page_api.ts";
+import { stages_method_names } from "../shared/stages/model.ts";
 import { method_names } from "../shared/store.ts";
 import type { Item } from "../shared/items/model.ts";
 import { tray_view, type TrayState } from "./tray_menu.ts";
@@ -35,6 +36,8 @@ const database_path = join(profile, "dev.db");
 // Any other profile gets a daemon, socket and log of its own, so a dev or test run never reaches the user's daemon.
 const socket_path = daemon_socket_path({ app: "x-dev", data_file: is_own_profile ? null : database_path });
 const log_file = is_own_profile ? daemon_log_path("x-dev") : join(profile, "daemon.log");
+// A dev or test profile keeps stages of its own, so it never edits the stages Claude Code runs.
+const stages_folder = is_own_profile ? undefined : join(profile, "stages");
 
 // The built app sits in out/main, and resources/ beside out/ both in the source tree and in the package.
 const icon_path = join(import.meta.dirname, "../../resources/icon.png");
@@ -49,7 +52,7 @@ function ensure_daemon(): Promise<unknown> {
   return start_daemon({
     socket_path,
     script: join(import.meta.dirname, "daemon.js"),
-    env: { X_DEV_DB: database_path, X_DEV_SOCKET: socket_path, X_DEV_VERSION: app.getVersion() },
+    env: { X_DEV_DB: database_path, X_DEV_SOCKET: socket_path, X_DEV_VERSION: app.getVersion(), ...(stages_folder ? { X_DEV_STAGES: stages_folder } : {}) },
     log_file,
   });
 }
@@ -198,6 +201,7 @@ function register_bridges(): void {
   device_bridge.handle(ipcMain, forwarded(device_method_names, "device") as never, options);
   certificate_bridge.handle(ipcMain, forwarded(certificate_method_names, "certificates") as never, options);
   local_mcp_bridge.handle(ipcMain, forwarded(local_mcp_method_names, "local_mcp") as never, options);
+  stages_bridge.handle(ipcMain, forwarded(stages_method_names, "stages") as never, options);
   const desktop: Implementation<DesktopMethods> = {
     get_desktop_settings,
     set_desktop_setting: async (key, value) => {

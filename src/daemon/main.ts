@@ -1,11 +1,11 @@
 // The desktop app's daemon: everything X-Dev does without a window, being the database, sync, backups, history and the
-// MCP endpoint. The window reaches it over a Unix socket with the same calls a browser makes to the web server, and
+// MCP endpoint, and the stage files. The window reaches it over a Unix socket with the same calls a browser makes to the web server, and
 // closing the window leaves it running.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -28,6 +28,7 @@ import { mcp_instructions, without_secrets } from "../shared/mcp.ts";
 import type { DeviceMethods } from "../shared/page_api.ts";
 import { bind_methods, dev_api, is_read_only, needs_upgrade, open_store, sync_engine } from "../shared/store.ts";
 import { register_dev_calls } from "../server/calls.ts";
+import { create_stage_files } from "../server/stage_files.ts";
 
 // ── Profile ──────────────────────────────────────────────────────────────────
 
@@ -121,6 +122,11 @@ const local_mcp = create_local_mcp({
   call: async (method, args) => without_secrets(method, await dev_bridge.dispatch(bind_methods(() => database, announce_change), method, args)),
 });
 
+// ── Stages ─────────────────────────────────────────────────────────────────
+
+// Claude Code's own agents folder unless the window names another, so the terminal and X-Dev run the same stages.
+const stage_files = create_stage_files({ folder: process.env.X_DEV_STAGES || join(homedir(), ".claude", "agents"), on_change: announce_change });
+
 // ── Desktop settings ─────────────────────────────────────────────────────────
 
 const desktop_file = join(profile, "desktop.json");
@@ -172,6 +178,7 @@ async function build_daemon(shut_down: () => void): Promise<FastifyInstance> {
       register_call_table(api, "/device", device_methods(), { is_read_only, on_change: tell_others });
       register_call_table(api, "/certificates", certificates.methods, { is_read_only });
       register_call_table(api, "/local_mcp", local_mcp.methods, { is_read_only });
+      register_call_table(api, "/stages", stage_files.methods, { is_read_only, on_change: tell_others });
       register_call_table(api, "/daemon", daemon_methods(shut_down), { is_read_only, on_change: tell_others });
     },
     { prefix: "/api" },
@@ -184,12 +191,14 @@ async function build_daemon(shut_down: () => void): Promise<FastifyInstance> {
 async function main(): Promise<void> {
   let is_stopping = false;
   let unused_timer: ReturnType<typeof setInterval> | undefined;
+  let stop_watching_stages = (): void => {};
   const daemon = await build_daemon(() => shut_down());
 
   function shut_down(): void {
     if (is_stopping) return;
     is_stopping = true;
     clearInterval(unused_timer);
+    stop_watching_stages();
     sync.stop();
     backing_up.stop();
     void daemon
@@ -212,6 +221,7 @@ async function main(): Promise<void> {
 
   sync.start();
   void local_mcp.start();
+  stop_watching_stages = stage_files.watch();
 
   // Without "Keep running in the background", the daemon stops a while after its last window has gone.
   let unused_since = Date.now();

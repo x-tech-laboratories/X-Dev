@@ -114,8 +114,9 @@ building feature after feature.
   that raised it. No GitHub issue is made yet, so ideas the user turns down never reach the tracker.
 - Before adding one, `propose_item` looks for an open item or proposal in the same repository with a
   close title and adds to it instead, so the same idea is not proposed twice.
-- A run may make a few proposals at most (a setting, three unless set); past that the tool refuses,
-  and the agent lists the rest in its report.
+- Each stage file caps how many proposals one run may make (`x-dev-max-proposals`, 0 for no limit):
+  three unless set, ten for Triage, Review and Close, whose work includes finding follow-ups. Past
+  the cap the tool refuses, and the agent lists the rest in its report.
 - Proposals wait in an **Inbox** on the board, above the lanes. The user accepts one, which makes its
   GitHub issue and moves it to Triage, merges it into another item, or drops it. Dropped ones stay in
   the history.
@@ -179,13 +180,15 @@ x-dev-paths: ["**"]     # what the stage may change; Specify has ["tests/**"]
 ```
 
 The Stages section of Settings lists them in order and edits each one in a dialog: its name, model,
-tools, next stage and prompt, the prompt in `RichText`. Saving writes the file back with its
-frontmatter. The daemon watches the folder with `config_watch`, so a file edited in a text editor
-shows at once. Stage files are the user's config, not synced data; the settings export carries them.
+effort, next stage, gates, tools and prompt, the prompt as plain text so the file keeps it exactly as
+typed. Saving writes the file back with its frontmatter, keeping keys and comments X-Dev does not know.
+The daemon watches the folder, so a file edited in a text editor shows at once. Stage files are the
+user's config, not synced data; the settings export carries them. A dev or test profile keeps its own
+stage folder, so it never edits the stages Claude Code runs.
 
 ### Models
 
-Each stage runs on its own model, set by the file's `model` key and an `x-dev-effort` key for the
+Each stage runs on its own model, set by the file's `model` key and Claude Code's `effort` key for the
 reasoning effort. The Stages section shows them as a table of stage, model and effort, so the whole
 pipeline's choice reads at a glance, for example Fable for Triage, Plan and Review and Opus for the
 rest. A model is picked from the models the agent backend offers, by alias or exact id.
@@ -235,6 +238,12 @@ Other backends, such as OpenCode, can be added as plugins later.
   holds Run; any cell holds Send back here and, for its last run, Discard. Clicking a cell opens its
   report. Lanes are grouped by repository and can be filtered, and finished items fold away. The
   Inbox above the lanes holds the proposals waiting for the user.
+- **New item**: two ways in, side by side. **Describe it** takes free text, such as a pasted bug report
+  or a few lines of an idea, and an agent fills in the form from it: title, feature or bug, the
+  repository it guesses from the text and the repositories listed in Settings, and a body for the
+  issue. The filled form opens for the user to check and change before anything is saved. **Fill in
+  the form** opens the same form empty. The agent's run is short and cheap (a setting picks its
+  model, Haiku unless set), and it changes nothing until the user saves.
 - **Item**: the issue and its status sheet, then the runs as a timeline, each with its report (editable), its output and
   its cost; the branch's diff; the pull request and its checks; notes for the next run.
 - **Runs**: every run across items, for cost and failures.
@@ -261,11 +270,11 @@ reports sync; worktrees and stage files stay on the machine that runs the agents
 | Accounts | `server/account_store`, `server/account_sign_in`, `web/react/sign_in`, `web/react/accounts` |
 | Running the agent | `agent/programs` (`run_program`), `agent/long_runs` for runs that outlive a restart |
 | Following a run | `server/events`, `server/runs`, `web/react/following`, `web/react/outcome_log` |
-| Watching stage files | `config_watch` |
+| Stage file fields | `web/react/chip_field`, `web/react/suggestions` |
 | GitHub events | `server/forge_webhook`, `server/poller` |
 | Notifications | `agent/desktop_notify`, `server/notify/*`, `phone_notices` |
 | Lane grouping and filters | `grouping` (`group_items`), `filter`, `FilterStack` |
-| Reports and prompts | `web/react/markdown`, `web/react/rich_text` |
+| Reports | `web/react/markdown` |
 | Runs table, cost charts | `DataTable`, `web/react/charts` |
 | Pages and widgets | `Shell`, layout, dialogs, `PageView`, `SettingsPage`, toasts, menus, `Icon` |
 | Plugins | `plugins`, `web/react/plugins` |
@@ -287,8 +296,8 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 1. **Skeleton**: the app from the standard's checklist, with the daemon, store, Shell, Settings and CI,
    on X-Libs.
 2. **Stages**: reading and editing the stage files.
-3. **Runs**: items by hand, running a stage through Claude Code, reports, discard, questions, the
-   status sheet tools and proposals; no GitHub yet.
+3. **Runs**: items by hand or described in free text for an agent to fill in, running a stage through
+   Claude Code, reports, discard, questions, the status sheet tools and proposals; no GitHub yet.
 4. **Gates**: the gates and `x-dev check`, then the change checks moved into X-Libs.
 5. **GitHub**: issues, labels, comments, pull requests and checks.
 6. **Board and item pages**, the diff view, notifications.

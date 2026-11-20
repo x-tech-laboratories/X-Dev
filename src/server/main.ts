@@ -3,23 +3,28 @@
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { keep_backing_up } from "@x-tech-laboratories/x-libs/backups";
 import { read_server_config } from "@x-tech-laboratories/x-libs/server/config";
+import { EventStream } from "@x-tech-laboratories/x-libs/server/events";
 import { load_accounts } from "@x-tech-laboratories/x-libs/server/passwords";
 import { sqlite_backups, take_staged_restore } from "@x-tech-laboratories/x-libs/server/sqlite_backups";
 
 import { dev_backup_naming, read_schedule } from "../shared/backups.ts";
 import { needs_upgrade, open_store, sync_engine } from "../shared/store.ts";
 import { build_app } from "./app.ts";
+import { create_stage_files } from "./stage_files.ts";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
 interface DevConfig {
   database: string;
   backups_folder: string;
+  // Claude Code's agents folder in the server's home unless set.
+  stages_folder?: string;
 }
 
 const server_config = read_server_config({
@@ -35,6 +40,7 @@ const server_config = read_server_config({
 const config = JSON.parse(readFileSync(server_config.values.config!, "utf8")) as DevConfig;
 const database_path = resolve(config.database);
 const backups_folder = resolve(config.backups_folder);
+const stages_folder = resolve(config.stages_folder ?? join(homedir(), ".claude", "agents"));
 
 // ── Database ─────────────────────────────────────────────────────────────────
 
@@ -71,6 +77,12 @@ const schedule_file = join(dirname(database_path), "backup-schedule.json");
 const read_backup_schedule = () => read_schedule(existsSync(schedule_file) ? JSON.parse(readFileSync(schedule_file, "utf8")) : null);
 const backing_up = keep_backing_up(kept, read_backup_schedule);
 
+// ── Stages ─────────────────────────────────────────────────────────────────
+
+// A stage file changed in another program reaches every page.
+const changes = new EventStream();
+const stage_files = create_stage_files({ folder: stages_folder, on_change: () => changes.announce_change() });
+
 // ── Server ───────────────────────────────────────────────────────────────────
 
 const app = await build_app({
@@ -88,11 +100,16 @@ const app = await build_app({
       void backing_up.check();
     },
   },
+  stages: stage_files.methods,
+  changes,
 });
 await app.listen({ host: server_config.host, port: server_config.port });
 console.info(`X-Dev is serving http://${server_config.host}:${server_config.port}/`);
 
+const stop_watching_stages = stage_files.watch();
+
 function stop(): void {
+  stop_watching_stages();
   backing_up.stop();
   void app.close().then(() => database.close());
 }

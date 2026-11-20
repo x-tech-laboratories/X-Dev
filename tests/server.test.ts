@@ -9,6 +9,7 @@ import type { FastifyInstance, InjectOptions } from "fastify";
 import { hash_password } from "@x-tech-laboratories/x-libs/server/passwords";
 
 import { build_app } from "../src/server/app.ts";
+import { create_stage_files } from "../src/server/stage_files.ts";
 import { method_names, open_store } from "../src/shared/store.ts";
 
 let app: FastifyInstance;
@@ -45,7 +46,8 @@ const fake_backups = {
 async function start(web_folder = "/nonexistent"): Promise<FastifyInstance> {
   const database = new DatabaseSync(":memory:");
   open_store(database);
-  app = await build_app({ database, declared: new Map([["root", hash_password(password)]]), web_folder, backups: fake_backups });
+  const stages = create_stage_files({ folder: mkdtempSync(join(tmpdir(), "x-dev-stages-")) }).methods;
+  app = await build_app({ database, declared: new Map([["root", hash_password(password)]]), web_folder, backups: fake_backups, stages });
   token = (await app.inject({ method: "POST", url: "/api/login", payload: { name: "root", password, device: "tests" } })).json().token;
   return app;
 }
@@ -143,5 +145,14 @@ describe("server", () => {
     expect((await signed({ method: "POST", url: "/api/backup/create_backup", payload: [] })).json()).toEqual(taken);
     expect(fake_backups.create_backup).toHaveBeenCalled();
     expect((await signed({ method: "POST", url: "/api/backup/drop_everything", payload: [] })).statusCode).toBe(404);
+  });
+
+  it("lets an admin read and add the stage files", async () => {
+    await start();
+
+    expect((await app.inject({ method: "POST", url: "/api/stages/list_stages", payload: [] })).statusCode).toBe(401);
+    expect((await signed({ method: "POST", url: "/api/stages/add_default_stages", payload: [] })).json()).toBeGreaterThan(0);
+    const listed = (await signed({ method: "POST", url: "/api/stages/list_stages", payload: [] })).json() as { stages: { id: string }[] };
+    expect(listed.stages[0]!.id).toBe("triage");
   });
 });

@@ -127,3 +127,9 @@ button.result-row {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }
+
+/* A stage prompt is Markdown kept exactly as typed, so it is edited as plain text in a fixed-width font. */
+.stage-prompt {
+  width: 100%;
+  font-family: var(--font-family-monospace);
+}

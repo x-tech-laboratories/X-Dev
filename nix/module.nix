@@ -20,6 +20,7 @@ let
   config_file = (pkgs.formats.json { }).generate "x-dev.json" {
     database = "${state_directory}/dev.db";
     backups_folder = "${state_directory}/backups";
+    stages_folder = "${state_directory}/stages";
   };
 in
 {
