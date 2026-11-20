@@ -449,6 +449,10 @@ five cents in all, through a Node script that spoke the protocol the runner spea
   in the repository ran without asking while a Bash call still asked; switched to `auto`, the next
   Bash call ran without asking. A Write under a `.claude` folder outside `.claude/worktrees` asks in
   every mode, Claude Code counting it sensitive.
+- Through X-Dev's runner itself, on Haiku with a one-line probe stage, about three cents: a message
+  written during a 20-second command was read after it and obeyed in the report; an interrupt during
+  the command halted it in about a quarter of a second and the next message finished the run; a run
+  that gave no report failed, and its Retry, carrying the Previous attempt section, finished.
 
 ## Checked for milestone 7
 
