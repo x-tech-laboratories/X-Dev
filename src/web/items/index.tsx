@@ -4,7 +4,7 @@
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { useState } from "react";
-import { PathInput, SearchBox, Select, Switch } from "@x-tech-laboratories/x-libs/web/react/controls";
+import { SearchBox, Select, Switch } from "@x-tech-laboratories/x-libs/web/react/controls";
 import { Dialog } from "@x-tech-laboratories/x-libs/web/react/dialog";
 import { FormRow, PageHeading, Section, Tabs, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout";
 import { Empty, Loaded, use_resource } from "@x-tech-laboratories/x-libs/web/react/states";
@@ -16,7 +16,7 @@ import { toast } from "@x-tech-laboratories/x-libs/web/react/toasts";
 import { is_repository, issue_link, item_kinds, type Item, type ItemInput, type ItemKind } from "../../shared/items/model.ts";
 import type { ItemDraft } from "../../shared/runs/runner.ts";
 import { attempt, calls, data_watch, page, succeeds, use_data } from "../api.ts";
-import { DialogButtons } from "../forms.tsx";
+import { DialogButtons, FolderField } from "../forms.tsx";
 import { confirm_delete, row_actions_column } from "../rows.tsx";
 import { ItemView, stage_label } from "./ItemView.tsx";
 
@@ -58,7 +58,8 @@ function DescribePane({ on_draft }: { on_draft: (draft: ItemDraft) => void }) {
 }
 
 export function ItemDialog({ initial, on_close }: { initial: Item | null; on_close: () => void }) {
-  const { runner, desktop } = page();
+  const { runner, desktop, daemon_is_here } = page();
+  const folder_picker = desktop && daemon_is_here ? (current: string) => desktop.pick_folder(current) : undefined;
   const [way, set_way] = useState<Way>(initial || !runner ? "form" : "describe");
   const [item, set_item] = useState<ItemInput>(() => (initial ? input_of(initial) : blank_item()));
   const [checkout, set_checkout] = useState("");
@@ -117,14 +118,7 @@ export function ItemDialog({ initial, on_close }: { initial: Item | null; on_clo
           </FormRow>
           {needs_checkout && (
             <FormRow label="Checkout" id="item-checkout">
-              <PathInput
-                label="Checkout"
-                placeholder="Its folder on this computer, to add it to Repositories"
-                value={checkout}
-                on_change={set_checkout}
-                pick={async (current) => (desktop ? await desktop.pick_folder(current) : null)}
-                browse_label="Choose…"
-              />
+              <FolderField label="Checkout" placeholder="Its folder on the computer that runs the agents, to add it to Repositories" value={checkout} on_change={set_checkout} pick={folder_picker} />
             </FormRow>
           )}
           <FormRow label="Issue" id="item-issue">

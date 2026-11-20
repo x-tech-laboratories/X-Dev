@@ -2,10 +2,12 @@
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
-import { Fragment, useEffect } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { create_accounts_client, type Me } from "@x-tech-laboratories/x-libs/web/accounts";
 import { AccountView, UsersView } from "@x-tech-laboratories/x-libs/web/react/accounts";
 import { SyncCertificatePrompt } from "@x-tech-laboratories/x-libs/web/react/certificates";
+import { ConnectionSettings } from "@x-tech-laboratories/x-libs/web/react/connections";
+import { PageHeading } from "@x-tech-laboratories/x-libs/web/react/layout";
 import { Shell, use_route } from "@x-tech-laboratories/x-libs/web/react/shell";
 import { SignInForm, use_account } from "@x-tech-laboratories/x-libs/web/react/sign_in";
 import { theme_choice } from "@x-tech-laboratories/x-libs/web/theme";
@@ -29,14 +31,29 @@ const own_sections = ["settings", "account", "users"];
 
 // ── App ──────────────────────────────────────────────────────────────────────
 
-// A browser signs in to the server; the desktop and phone apps keep their own data and sign in only to sync.
-// A device that syncs asks to trust its server's certificate whenever sync fails over it.
+// A browser signs in to the server; the desktop app works on its own daemon or another, and the phone on a daemon
+// elsewhere, each signing in once to it. A device that syncs asks to trust its server's certificate whenever sync fails.
 function DeviceApp() {
-  const { certificates, device } = page();
+  const { certificates, device, connections } = page();
+  const [has_daemon, set_has_daemon] = useState<boolean | null>(connections ? null : true);
+  useEffect(() => void connections?.list_connections().then((view) => set_has_daemon(view.current !== null), () => set_has_daemon(true)), [connections]);
+  if (has_daemon === null) return null;
+  if (!has_daemon && connections) return <FirstConnection />;
   return <>
     {device && certificates && <SyncCertificatePrompt device={device} certificates={certificates} subscribe={data_watch.subscribe} />}
     <Pages me={null} />
   </>;
+}
+
+// A phone with no daemon yet adds the computer that runs the agents before anything else.
+function FirstConnection() {
+  const { connections, certificates } = page();
+  return (
+    <Shell brand="X-Dev" brand_icon={brand_icon} theme={theme} user={null}>
+      <PageHeading title="Connect to X-Dev" subtitle="Add the computer that holds your checkouts and runs the agents, with its address and an admin's name and password. Turn on Let other devices connect in its Settings first." />
+      <ConnectionSettings client={connections!} certificates={certificates} placeholder="https://dev.example.org:7760" />
+    </Shell>
+  );
 }
 
 export function App() {
@@ -49,7 +66,7 @@ function SignedInApp() {
   if (account.state === "signed_out") {
     return (
       <Shell brand="X-Dev" brand_icon={brand_icon} theme={theme} user={null}>
-        <SignInForm client={accounts} title="X-Dev" icon={brand_icon} on_signed_in={refresh} />
+        <SignInForm client={accounts} title="X-Dev" icon={brand_icon} on_signed_in={() => (page().runner ? refresh() : location.reload())} />
       </Shell>
     );
   }

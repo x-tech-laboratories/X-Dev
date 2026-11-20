@@ -41,9 +41,27 @@ describe("the page's calls", () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ "history.keep_days": 30 }), { status: 200 }));
     vi.stubGlobal("fetch", fetch);
     vi.stubGlobal("EventSource", QuietEventSource);
-    set_page_api(web_api());
+    set_page_api(await web_api());
 
     expect(await calls().get_settings()).toEqual({ "history.keep_days": 30 });
     expect(fetch).toHaveBeenCalledWith("api/call/get_settings", expect.objectContaining({ method: "POST", body: "[]" }));
+  });
+
+  it("reach the server's runner only when it runs agents and the user is an admin", async () => {
+    const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url === "api/abilities" ? { runner: true, stages: true } : "run-1"), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("EventSource", QuietEventSource);
+    const api = await web_api();
+
+    expect(await api.runner!.start_run("item-1", {})).toBe("run-1");
+    expect(fetch).toHaveBeenCalledWith("api/runner/start_run", expect.objectContaining({ method: "POST", body: JSON.stringify(["item-1", {}]) }));
+    expect(api.daemon_is_here).toBeUndefined();
+  });
+
+  it("leave the runner out where the server has none", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ runner: false, stages: true }), { status: 200 })));
+    vi.stubGlobal("EventSource", QuietEventSource);
+
+    expect((await web_api()).runner).toBeUndefined();
   });
 });
