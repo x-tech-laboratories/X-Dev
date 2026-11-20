@@ -207,11 +207,24 @@ A run is given X-Dev's MCP endpoint, limited to the item being run, for `ask_use
 Agent backends are provider plugins (`agent_backend`). The bundled one runs Claude Code:
 
 ```
-claude -p --agent stage-<name> --output-format stream-json --verbose
+claude -p --agents <run>/agents.json --agent stage-<id> --session-id <uuid> --output-format stream-json
+  --verbose --permission-mode auto --mcp-config <run>/mcp.json
 ```
 
 in the item's worktree, with the input on standard input, through X-Libs' `run_program` (no shell,
 its own process group, stopped by an abort signal). It runs on the user's own Claude login.
+
+- The stage goes in as a JSON agent definition (`--agents`), so it runs from whichever folder holds
+  the stage files; Claude Code honours its model, effort, tools and refused tools from there, and a
+  model given for one run replaces the stage's in that file.
+- The session id is X-Dev's own, so a run waiting for answers resumes with `--resume <uuid>` and the
+  answers on standard input.
+- `--strict-mcp-config` is refused where a managed MCP config is present, so a run gets the user's
+  MCP servers as well as X-Dev's own.
+- The stream's last message is `{"type": "result"}` with the final text, `is_error`,
+  `total_cost_usd` and the session id; the report block is read from that text.
+- The permission mode is a setting, `auto` unless set, so every action is checked with no one
+  watching.
 
 This is a written exception to "a daemon never shells out": Claude Code has no Node API that uses the
 user's login, and `git worktree` has none either. Both are named in the README. GitHub is reached
@@ -303,13 +316,11 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 6. **Board and item pages**, the diff view, notifications.
 7. **Android and remote daemons**.
 
-## To check before milestone 3
+## Checked for milestone 3
 
-- The exact `claude` flags for running one agent headless with its tools and permission mode, and how
-  `stream-json` marks the final message.
-- How a headless run is resumed by its session id with new input, and how a tool such as `ask_user`
-  ends the turn so the run can wait.
-- How a run is given one extra MCP server, scoped to its item, alongside the user's own.
-- That Claude Code ignores the `x-dev-*` frontmatter keys.
-- Which values an agent file's `model` takes (aliases such as `fable` and `opus`, exact ids), and how a
-  run overrides it and sets the effort from the command line.
+- Claude Code reads an agent file with the `x-dev-*` keys and ignores them, taking its model from the
+  file (checked with Claude Code 2.1.328).
+- `ask_user` records the questions and tells the agent to end its turn; once the session ends with
+  questions recorded, the run waits, and answering resumes the same session.
+- X-Dev's run tools are an MCP server of its own on 127.0.0.1, each run reaching only its item through
+  a token in its MCP config's headers.

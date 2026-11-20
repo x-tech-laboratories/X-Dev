@@ -133,3 +133,22 @@ button.result-row {
   width: 100%;
   font-family: var(--font-family-monospace);
 }
+
+/* A discarded run stays in the list, set back so the runs that count stand out. */
+.run.discarded {
+  opacity: 0.6;
+}
+
+/* The questions a waiting run asked, and the field the answers go in. */
+.run-questions textarea,
+.section textarea {
+  width: 100%;
+}
+
+/* Each proposal in the inbox on its own line, its buttons beside it. */
+.inbox {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0;
+  list-style: none;
+}

@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { run_program } from "@x-tech-laboratories/x-libs/agent/programs";
 import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 
-import { check_item, is_repository, item_kinds, read_status, type Item, type ItemInput, type ItemKind } from "../shared/items/model.ts";
+import { check_item, is_repository, issue_link, item_kinds, read_status, type Item, type ItemInput, type ItemKind } from "../shared/items/model.ts";
 import { answers_input, append_output, branch_name_of, build_run_input, needs_input, parse_report, read_stream_line, type Run, type StreamResult } from "../shared/runs/model.ts";
 import { read_runner_settings, type RunnerMethods, type RunnerSettings, type StartOptions } from "../shared/runs/runner.ts";
 import { find_run, insert_run, latest_report, runs_in_state, set_item_fields, update_run } from "../shared/runs/store.ts";
@@ -228,8 +228,7 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
     const worktree = await ensure_worktree(repository_folder, branch);
     if (!item.branch) set_item_fields(database(), item.id, { branch });
     const start_commit = await git(["rev-parse", "HEAD"], worktree);
-    const issue_url = item.issue_number === null ? null : `https://github.com/${item.repository}/issues/${item.issue_number}`;
-    const input = build_run_input({ item: { ...item, branch }, stage_label: stage.label, worktree, issue_url, latest_report: latest_report(database(), item.id), notes: item.notes });
+    const input = build_run_input({ item: { ...item, branch }, stage_label: stage.label, worktree, issue_url: issue_link(item), latest_report: latest_report(database(), item.id), notes: item.notes });
     require_free();
     const run_id = insert_run(database(), {
       item_id: item.id,

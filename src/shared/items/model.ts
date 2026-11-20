@@ -102,6 +102,11 @@ export function check_item(input: ItemInput): CheckedItem {
   return { id: input.id, title, kind, repository, issue_number, body: input.body?.trim() ?? "", stage };
 }
 
+// The item's GitHub issue page, or null before it has one.
+export function issue_link(item: Pick<Item, "repository" | "issue_number">): string | null {
+  return item.issue_number === null ? null : `https://github.com/${item.repository}/issues/${item.issue_number}`;
+}
+
 // A sheet with the sections given replaced, refused when it grows past the limit.
 export function merge_status(sheet: StatusSheet, changes: Partial<Record<string, string>>): StatusSheet {
   const merged = { ...sheet };
