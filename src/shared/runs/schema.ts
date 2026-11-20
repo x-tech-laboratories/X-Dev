@@ -47,6 +47,9 @@ export const runs = sqliteTable(
     // Each gate's result as JSON, and the user's overrides of failed ones with their reasons.
     gates: text().notNull().default("[]"),
     overrides: text().notNull().default("[]"),
+    // The tokens the agent read, cached ones included, and wrote, summed over every turn of the run.
+    input_tokens: integer().notNull().default(0),
+    output_tokens: integer().notNull().default(0),
   },
   (table) => [index("runs_by_item").on(table.item_id, table.started_at)],
 );

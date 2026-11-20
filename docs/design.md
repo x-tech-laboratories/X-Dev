@@ -261,14 +261,18 @@ Other backends, such as OpenCode, can be added as plugins later.
 
 ## Pages
 
-- **Board**: a swimlane per item and a column per stage. The lane's head names the item, its
-  repository and issue; each cell shows that stage's runs for the item: done with a one-line summary
-  of its report, running, failed, needs input, or not reached. The current stage's cell is marked and
-  holds Run; any cell holds Send back here and, for its last run, Discard. Clicking a cell opens its
-  report. Lanes are grouped by repository and can be filtered, and finished items fold away. The
-  Inbox above the lanes holds the proposals waiting for the user. The board is the page X-Dev opens
-  on. It is drawn in X-Dev for now, on one CSS grid so every column lines up; the swimlane board
-  widget is to move into X-Libs, with X-Tasks' board, once a second app needs lanes.
+- **Board**: a column per stage and a card per item in its stage's column; the card merges the item
+  and that stage's run. It names the repository and issue and the item, then the run's state, the
+  first line of its report or what failed, its model, changed lines, cost and age, its gates, a
+  waiting run's question with its choices, the pull request and its checks, and a dot per stage for
+  the way the item came. It holds Run with a model picker, and a menu to open the item, send it back
+  to an earlier stage and discard its last run. Clicking a card opens the item at that run; dragging
+  it to an earlier column sends it back, and dragging it forward is refused, since stages move on
+  only by a run's report. Cards filter by repository and words, can be grouped into a lane per
+  repository, and finished items show in a Done column when asked; on a phone the columns stack. The
+  Inbox above holds the proposals waiting for the user. The board is the page X-Dev opens on. Its
+  frame is drawn in X-Dev for now and is to move onto X-Libs' board widget; the card
+  (`src/web/board/ItemCard.tsx`) knows nothing of the frame.
 - **New item**: two ways in, side by side. **Describe it** takes free text, such as a pasted bug report
   or a few lines of an idea, and an agent fills in the form from it: title, feature or bug, the
   repository it guesses from the text and the repositories X-Dev knows, a body for the issue, and,
@@ -279,7 +283,9 @@ Other backends, such as OpenCode, can be added as plugins later.
   model, Haiku unless set), and it changes nothing until the user saves.
 - **Item**: the issue and its status sheet, then the runs as a timeline, each with its report (editable), its output and
   its cost; the branch's diff; the pull request and its checks; notes for the next run.
-- **Runs**: every run across items, for cost and failures.
+- **Runs**: every run across items in a table of item, stage, model, state, start, duration, tokens,
+  cost and gates, filtered by words and state, a row opening its item at that run; above it the tokens
+  and cost summed by stage and by model.
 - **Repositories**: each repository with its checkout on this computer and its open items, added by
   choosing the checkout's folder, its owner/name read from its git remote. They are a list of what
   X-Dev works on, like X-Backups' repositories, so they have a page of their own rather than a
@@ -321,7 +327,8 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 - A board widget with swimlanes: columns, optional rows (lanes) each with a head, and a cell per lane
   and column holding the app's cards, worked by keyboard and drawn as a lane list on phones. X-Tasks'
   `BoardView` is the starting point, moved into X-Libs with lanes added and X-Tasks switched onto it.
-- A diff view: a branch's changes by file, with added and removed lines.
+- A diff view: a branch's changes by file, with added and removed lines. X-Dev's is built app-local in
+  `src/web/diff/` and `src/shared/diff/`, on parse-diff, with nothing of X-Dev in its props, ready to move.
 - A GitHub client on Octokit: issues, labels, comments, pull requests and checks, for any app.
 - Git worktrees: make, list, reset and remove one, through `run_program`.
 - Change checks: the gates that are not X-Dev's own (`commits`, `secrets`, `leftovers`, `comments`,

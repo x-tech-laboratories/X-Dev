@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import fastify, { type FastifyInstance } from "fastify";
+import { Notifier } from "@x-tech-laboratories/x-libs/agent/desktop_notify";
 import { keep_backing_up, type BackupSchedule } from "@x-tech-laboratories/x-libs/backups";
 import { create_certificate_trust } from "@x-tech-laboratories/x-libs/certificates";
 import { create_local_mcp } from "@x-tech-laboratories/x-libs/electron/mcp";
@@ -33,6 +34,7 @@ import { create_run_tools } from "../server/run_tools.ts";
 import { create_runner } from "../server/runner.ts";
 import { create_stage_files } from "../server/stage_files.ts";
 import { record_history } from "../shared/history/store.ts";
+import { watch_run_notices } from "./run_notices.ts";
 
 // ── Profile ──────────────────────────────────────────────────────────────────
 
@@ -131,12 +133,25 @@ const local_mcp = create_local_mcp({
 // Claude Code's own agents folder unless the window names another, so the terminal and X-Dev run the same stages.
 const stage_files = create_stage_files({ folder: process.env.X_DEV_STAGES || join(homedir(), ".claude", "agents"), on_change: announce_change });
 
+// ── Notifications ──────────────────────────────────────────────────────────
+
+// The app's icon, beside out/ both in the source tree and in the package.
+const icon_path = join(import.meta.dirname, "../../resources/icon.png");
+
+const notifier = new Notifier({ app_name: "X-Dev", icons: { app: icon_path }, on_error: (message) => console.error(`x-dev notifications: ${message}`) });
+
 // ── Runner ─────────────────────────────────────────────────────────────────
 
-// A run's writes are recorded in history and reach the open windows like any other.
+const stage_label = (id: string): string => stage_files.methods.list_stages().stages.find((stage) => stage.id === id)?.label ?? id;
+
+// Runs that finish, fail, ask or propose while anyone or no one is watching are told through notifications.
+const run_notices = watch_run_notices({ database: () => database, notifier, settings: () => read_desktop(), stage_label });
+
+// A run's writes are recorded in history, reach the open windows like any other, and may be worth a notification.
 const after_run_write = (): void => {
   record_history(database);
   announce_change();
+  run_notices.check();
 };
 
 const run_tools = create_run_tools({ database: () => database, after_write: after_run_write, on_asked: (run_id) => runner.mark_asked(run_id) });

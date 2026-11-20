@@ -15,6 +15,7 @@ import type { RunnerMethods } from "../src/shared/runs/runner.ts";
 import { runner_setting_defaults } from "../src/shared/runs/runner.ts";
 import { insert_run, propose, update_run } from "../src/shared/runs/store.ts";
 import type { StagesMethods } from "../src/shared/stages/model.ts";
+import { parse_unified_diff } from "../src/shared/diff/parse.ts";
 import { bind_methods, open_store, type DevMethods } from "../src/shared/store.ts";
 import { set_page_api } from "../src/web/api.ts";
 import { App } from "../src/web/App.tsx";
@@ -22,6 +23,8 @@ import { App } from "../src/web/App.tsx";
 function as_client(methods: object): unknown {
   return Object.fromEntries(Object.entries(methods as Record<string, (...args: unknown[]) => unknown>).map(([name, call]) => [name, async (...args: unknown[]) => call(...args)]));
 }
+
+const sample_diff = ["diff --git a/src/board.ts b/src/board.ts", "index 1111111..2222222 100644", "--- a/src/board.ts", "+++ b/src/board.ts", "@@ -1,2 +1,2 @@", " keep", "-old line", "+new line", ""].join("\n");
 
 // The page on a real store and real stage files in throwaway places, with a runner whose calls are recorded.
 function fake_page(with_runner = true) {
@@ -46,6 +49,8 @@ function fake_page(with_runner = true) {
     sign_in_github: vi.fn(async () => ({ code: "ABCD-1234", url: "https://github.com/login/device" })),
     sign_out_github: vi.fn(async () => undefined),
     describe_item: vi.fn(async () => ({ title: "Swimlane board", kind: "feature" as const, repository: "x-tech-laboratories/X-Dev", body: "One lane per item." })),
+    get_item_diff: vi.fn(async () => ({ base: "abc123", files: parse_unified_diff(sample_diff), truncated: false, problem: "" })),
+    list_run_changes: vi.fn(async () => ({})),
   } satisfies RunnerMethods;
   set_page_api({
     host: "desktop",
@@ -223,5 +228,55 @@ describe("the items page", () => {
     await waitFor(() => expect(store.list_items()).toHaveLength(1));
     expect(store.list_items()[0]).toMatchObject({ title: "Swimlane board", body: "One lane per item." });
     await waitFor(() => expect(runner.link_issue).toHaveBeenCalledWith(store.list_items()[0]!.id));
+  });
+});
+
+describe("an item's changes and runs", () => {
+  it("shows the branch's diff by file, with added and removed lines", async () => {
+    const { store, runner } = fake_page();
+    const id = store.save_item(item);
+    render(<App />);
+    go(`#/items/${id}`);
+
+    expect(await screen.findByText(/1 file changed/)).toBeTruthy();
+    expect(runner.get_item_diff).toHaveBeenCalledWith(id);
+    expect(screen.getAllByText("src/board.ts").length).toBeGreaterThan(0);
+    expect(screen.getByText("new line").closest("tr")!.className).toBe("tone-fill-good");
+    expect(screen.getByText("old line").closest("tr")!.className).toBe("tone-fill-bad");
+  });
+
+  it("says why there is no diff to show, and that it is read on the desktop", async () => {
+    const { store, runner } = fake_page();
+    runner.get_item_diff.mockResolvedValueOnce({ base: "", files: [], truncated: false, problem: "The item has no worktree yet; its first run makes one." });
+    const id = store.save_item(item);
+    render(<App />);
+    go(`#/items/${id}`);
+    expect(await screen.findByText(/no worktree yet/)).toBeTruthy();
+  });
+
+  it("warns when Review would run on the model Implement's last run used", async () => {
+    const { database, store } = fake_page();
+    const id = store.save_item({ ...item, stage: "review" });
+    add_run(database, id, { stage: "implement", state: "done" });
+    render(<App />);
+    go(`#/items/${id}`);
+
+    fireEvent.change(await screen.findByLabelText("Model for this run"), { target: { value: "fable" } });
+    expect(await screen.findByText(/Implement's last run used fable/)).toBeTruthy();
+  });
+
+  it("opens at the run the address names, its report shown, with its tokens", async () => {
+    const { database, store } = fake_page();
+    const id = store.save_item(item);
+    const first = add_run(database, id, { state: "done", report: "## Plan handoff\n**Next:** specify\n**Done:** - The first plan", input_tokens: 1200, output_tokens: 300 });
+    add_run(database, id, { state: "done", report: "## Plan handoff\n**Next:** specify\n**Done:** - The second plan", started_at: "2026-11-20T11:00:00.000Z" });
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    render(<App />);
+    go(`#/items/${id}/${first}`);
+
+    expect(await screen.findByText(/The first plan/)).toBeTruthy();
+    expect(screen.getByText("1,200 read, 300 written")).toBeTruthy();
+    await waitFor(() => expect(scrolled).toHaveBeenCalled());
   });
 });

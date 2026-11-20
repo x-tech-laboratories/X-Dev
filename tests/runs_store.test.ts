@@ -73,7 +73,7 @@ describe("the agent's stream", () => {
 
   it("gives the result with its cost", () => {
     const line = JSON.stringify({ type: "result", result: report, is_error: false, total_cost_usd: 0.4, session_id: "s1" });
-    expect(read_stream_line(line).result).toEqual({ text: report, is_error: false, cost_usd: 0.4, session_id: "s1" });
+    expect(read_stream_line(line).result).toEqual({ text: report, is_error: false, cost_usd: 0.4, session_id: "s1", tokens: { input: 0, output: 0 } });
   });
 
   it("keeps the newest part of a transcript that runs over", () => {

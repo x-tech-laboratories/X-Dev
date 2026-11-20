@@ -8,6 +8,7 @@ import type { SettingsSection } from "@x-tech-laboratories/x-libs/web/react/layo
 import { BoardView } from "./board/index.tsx";
 import { ItemsView } from "./items/index.tsx";
 import { RepositoriesView } from "./repositories/index.tsx";
+import { RunsView } from "./runs/index.tsx";
 
 // ── Features ─────────────────────────────────────────────────────────────────
 
@@ -35,5 +36,6 @@ export interface PageFeature {
 export const page_features: PageFeature[] = [
   { id: "board", label: "Board", pages: [{ id: "lanes", label: "Board" }], view: () => <BoardView />, settings: () => [] },
   { id: "items", label: "Items", pages: [{ id: "list", label: "Items" }], view: (parts) => <ItemsView parts={parts} />, settings: () => [] },
+  { id: "runs", label: "Runs", pages: [{ id: "list", label: "Runs" }], view: () => <RunsView />, settings: () => [] },
   { id: "repositories", label: "Repositories", pages: [{ id: "list", label: "Repositories" }], view: () => <RepositoriesView />, settings: () => [] },
 ];

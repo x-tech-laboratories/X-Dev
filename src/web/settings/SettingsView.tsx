@@ -14,6 +14,7 @@ import { TrustedCertificates } from "@x-tech-laboratories/x-libs/web/react/certi
 import { SyncSettings } from "@x-tech-laboratories/x-libs/web/react/sync_settings";
 
 import type { DesktopSettings } from "../../shared/desktop.ts";
+import { notice_kind_labels, notice_kinds, type NoticeKind } from "../../shared/runs/notices.ts";
 import { data_watch, page, set_setting, show_error, use_settings } from "../api.ts";
 import { page_features } from "../features.tsx";
 import { GitHubSettings, RunSettings } from "../stages/RunnerSettings.tsx";
@@ -99,6 +100,29 @@ function Desktop() {
   );
 }
 
+// Which kinds of notification this computer's daemon shows; a browser and a phone show none.
+function Notifications() {
+  const { desktop } = page();
+  const [settings, set_settings] = useState<DesktopSettings | null>(null);
+  useEffect(() => void desktop?.get_desktop_settings().then(set_settings, show_error), [desktop]);
+  if (!desktop || !settings) return null;
+
+  const key_of = (kind: NoticeKind) => `notify_${kind}` as keyof DesktopSettings;
+  const change = (kind: NoticeKind, on: boolean): void => {
+    set_settings({ ...settings, [key_of(kind)]: on });
+    void desktop.set_desktop_setting(key_of(kind), on).catch(show_error);
+  };
+  return (
+    <>
+      {notice_kinds.map((kind) => (
+        <SettingRow key={kind} label={notice_kind_labels[kind][0]} hint={notice_kind_labels[kind][1]} as_label>
+          <Switch label={notice_kind_labels[kind][0]} checked={settings[key_of(kind)]} on_change={(on) => change(kind, on)} />
+        </SettingRow>
+      ))}
+    </>
+  );
+}
+
 // Sync on a device with its own database, and backups of whichever database the page works on.
 function data_category(): SettingsCategory[] {
   const { device, backups, backup_folder, certificates, local_mcp, desktop } = page();
@@ -110,6 +134,7 @@ function data_category(): SettingsCategory[] {
     ...(backups
       ? [{ id: "backups", heading: "Backups", hint: backup_folder ? "Copies of this device's data, kept in a folder you pick." : device ? "Copies of this device's data, kept beside it." : "Copies of the server's data, kept in its data folder. A restore restarts the server.", content: <Backups /> }]
       : []),
+    ...(desktop ? [{ id: "notifications", heading: "Notifications", hint: "What this computer tells you about runs while X-Dev is closed or out of sight; clicking one opens the item.", content: <Notifications /> }] : []),
     ...(local_mcp
       ? [{ id: "mcp", heading: "MCP server", hint: "Let AI assistants such as Claude Code reach this device's data without the server.", content: <LocalMcpSettings device={local_mcp} name="x-dev" data_name="read and change your items" /> }]
       : []),

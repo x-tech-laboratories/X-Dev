@@ -3,7 +3,7 @@
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
-import { and, desc, eq, isNull, ne, synced_tables } from "@x-tech-laboratories/x-libs/drizzle";
+import { and, desc, eq, isNull, ne, sql, synced_tables } from "@x-tech-laboratories/x-libs/drizzle";
 import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 
 import { define_feature, drizzle_of, new_id } from "../feature.ts";
@@ -12,7 +12,7 @@ import { items } from "../items/schema.ts";
 import { runs_api } from "./api.ts";
 import { migrations } from "./migrations/index.ts";
 import { gates_cleared, type GateOverride, type GateResult } from "../gates/model.ts";
-import { needs_input, report_summary, type Question, type Run, type RunState, type StageRun } from "./model.ts";
+import { gate_marks, needs_input, report_summary, type Question, type Run, type RunState, type RunSummary, type StageRun, type TokenCounts } from "./model.ts";
 import { runs, runs_tables } from "./schema.ts";
 
 // ── Reading ──────────────────────────────────────────────────────────────────
@@ -83,10 +83,53 @@ export function set_item_fields(database: SqlDatabase, id: string, changes: Part
   drizzle_of(database).update(items).set(changes).where(eq(items.id, id)).run();
 }
 
+// Adds the tokens one turn of a run's session used to the run's own.
+export function add_run_tokens(database: SqlDatabase, id: string, tokens: TokenCounts | undefined): void {
+  if (!tokens) return;
+  drizzle_of(database)
+    .update(runs)
+    .set({ input_tokens: sql`${runs.input_tokens} + ${tokens.input}`, output_tokens: sql`${runs.output_tokens} + ${tokens.output}` })
+    .where(eq(runs.id, id))
+    .run();
+}
+
 // A run whose report is good and whose failed gates are all overridden hands its report on, moving the item on.
 export function finish_run(database: SqlDatabase, run: Run): void {
   update_run(database, run.id, { state: "done", error: "" });
   set_item_fields(database, run.item_id, { notes: "", ...(run.next === needs_input ? {} : { stage: run.next }) });
+}
+
+// What the Runs page reads of each run, its transcript and input left behind.
+const summary_columns = {
+  id: runs.id,
+  item_id: runs.item_id,
+  item_title: items.title,
+  repository: items.repository,
+  stage: runs.stage,
+  model: runs.model,
+  state: runs.state,
+  started_at: runs.started_at,
+  ended_at: runs.ended_at,
+  input_tokens: runs.input_tokens,
+  output_tokens: runs.output_tokens,
+  cost_usd: runs.cost_usd,
+  gates: runs.gates,
+  overrides: runs.overrides,
+  error: runs.error,
+};
+
+type SummaryRow = Omit<RunSummary, "state" | "gates_failed" | "gates_passed_over" | "gates_run"> & { state: string; gates: string; overrides: string };
+
+function summary_of({ gates, overrides, ...row }: SummaryRow): RunSummary {
+  const results = JSON.parse(gates) as GateResult[];
+  const failed = results.filter((result) => result.outcome === "failed").map((result) => result.gate);
+  return {
+    ...row,
+    state: row.state as RunState,
+    gates_failed: failed.length,
+    gates_passed_over: (JSON.parse(overrides) as GateOverride[]).filter((override) => failed.includes(override.gate)).length,
+    gates_run: results.filter((result) => result.outcome !== "skipped").length,
+  };
 }
 
 // ── Proposals ────────────────────────────────────────────────────────────────
@@ -142,7 +185,21 @@ export const runs_feature = define_feature({
     get_run: (database: SqlDatabase, id: string): Run => find_run(database, id),
     list_stage_runs: (database: SqlDatabase): StageRun[] => {
       const rows = drizzle_of(database)
-        .select({ item_id: runs.item_id, stage: runs.stage, run_id: runs.id, state: runs.state, report: runs.report, error: runs.error, started_at: runs.started_at })
+        .select({
+          item_id: runs.item_id,
+          stage: runs.stage,
+          run_id: runs.id,
+          state: runs.state,
+          model: runs.model,
+          report: runs.report,
+          error: runs.error,
+          started_at: runs.started_at,
+          ended_at: runs.ended_at,
+          cost_usd: runs.cost_usd,
+          gates: runs.gates,
+          overrides: runs.overrides,
+          questions: runs.questions,
+        })
         .from(runs)
         .where(ne(runs.state, "discarded"))
         .orderBy(desc(runs.started_at))
@@ -150,10 +207,20 @@ export const runs_feature = define_feature({
       const latest = new Map<string, StageRun>();
       for (const row of rows) {
         const key = `${row.item_id} ${row.stage}`;
-        if (!latest.has(key)) latest.set(key, { item_id: row.item_id, stage: row.stage, run_id: row.run_id, state: row.state as RunState, summary: report_summary(row.report), error: row.error, started_at: row.started_at });
+        if (latest.has(key)) continue;
+        const { report, gates, overrides, questions, ...rest } = row;
+        latest.set(key, { ...rest, state: row.state as RunState, summary: report_summary(report), gates: gate_marks(JSON.parse(gates) as GateResult[], JSON.parse(overrides) as GateOverride[]), questions: JSON.parse(questions) as Question[] });
       }
       return [...latest.values()];
     },
+    list_run_summaries: (database: SqlDatabase): RunSummary[] =>
+      drizzle_of(database)
+        .select(summary_columns)
+        .from(runs)
+        .innerJoin(items, eq(items.id, runs.item_id))
+        .orderBy(desc(runs.started_at))
+        .all()
+        .map(summary_of),
     list_recent_runs: (database: SqlDatabase, limit: number): Run[] => drizzle_of(database).select().from(runs).orderBy(desc(runs.started_at)).limit(limit).all().map(as_run),
     update_run_report: (database: SqlDatabase, id: string, report: string): void => {
       const run = find_run(database, id);
@@ -169,6 +236,15 @@ export const runs_feature = define_feature({
       const report = `${run.report}\n\n**Gate passed over:** ${gate}: ${reason.trim()}`;
       update_run(database, run_id, { overrides, report });
       if (run.state === "failed" && run.next && gates_cleared(run.gates, overrides)) finish_run(database, { ...run, overrides, report });
+    },
+    send_item_back: (database: SqlDatabase, item_id: string, stage: string): void => {
+      const item = find_item(database, item_id);
+      if (item.closed_at) throw new Error("that item is closed");
+      if (item.stage === proposed) throw new Error("take the proposal from the inbox first");
+      if (!stage.trim()) throw new Error("name the stage to send it back to");
+      const busy = drizzle_of(database).select({ id: runs.id }).from(runs).where(and(eq(runs.item_id, item_id), eq(runs.state, "running"))).get();
+      if (busy) throw new Error("a run on that item is under way; stop it first");
+      set_item_fields(database, item_id, { stage: stage.trim() });
     },
     save_item_notes: (database: SqlDatabase, item_id: string, notes: string): void => {
       find_item(database, item_id);

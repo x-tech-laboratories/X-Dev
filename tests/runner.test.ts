@@ -63,7 +63,7 @@ describe("the runner", () => {
     await runner.idle();
 
     const run = store.get_run(run_id);
-    expect(run).toMatchObject({ state: "done", stage: "plan", model: "fable", effort: "high", next: "specify", cost_usd: 0.25 });
+    expect(run).toMatchObject({ state: "done", stage: "plan", model: "fable", effort: "high", next: "specify", cost_usd: 0.25, input_tokens: 120, output_tokens: 30 });
     expect(run.report.startsWith("## Plan handoff")).toBe(true);
     expect(run.output).toContain("→ Bash: git status");
     expect(run.input).toContain("Keep it small.");
@@ -117,7 +117,7 @@ describe("the runner", () => {
 
     runner.methods.answer_run(run_id, "Lanes.");
     await runner.idle();
-    expect(store.get_run(run_id)).toMatchObject({ state: "done", next: "implement", answers: "Lanes.", cost_usd: 0.5 });
+    expect(store.get_run(run_id)).toMatchObject({ state: "done", next: "implement", answers: "Lanes.", cost_usd: 0.5, input_tokens: 240, output_tokens: 60 });
   });
 
   it("lets the agent update the status sheet and propose items, up to its stage's limit", async () => {

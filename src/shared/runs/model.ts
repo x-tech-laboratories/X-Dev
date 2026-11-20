@@ -42,6 +42,8 @@ export interface Run {
   end_commit: string;
   gates: GateResult[];
   overrides: GateOverride[];
+  input_tokens: number;
+  output_tokens: number;
 }
 
 // A report's Next when the stage waits on the user.
@@ -78,15 +80,32 @@ export function report_summary(report: string): string {
   return report.split("\n").find((line) => line.trim() && !line.startsWith("#"))?.trim() ?? "";
 }
 
+// One gate's result on a run as a card shows it, a failed one marked when the user passed it over.
+export interface GateMark {
+  gate: string;
+  outcome: GateResult["outcome"];
+  passed_over: boolean;
+}
+
 // The latest run of one stage on one item, as a board shows it.
 export interface StageRun {
   item_id: string;
   stage: string;
   run_id: string;
   state: RunState;
+  model: string;
   summary: string;
   error: string;
   started_at: string;
+  ended_at: string | null;
+  cost_usd: number;
+  gates: GateMark[];
+  questions: Question[];
+}
+
+// The gates a run went through, the ones that were not checked left out.
+export function gate_marks(gates: GateResult[], overrides: GateOverride[]): GateMark[] {
+  return gates.filter((result) => result.outcome !== "skipped").map((result) => ({ gate: result.gate, outcome: result.outcome, passed_over: overrides.some((override) => override.gate === result.gate) }));
 }
 
 // ── Input ────────────────────────────────────────────────────────────────────
@@ -127,11 +146,24 @@ export function answers_input(questions: Question[], answers: string): string {
 
 // ── Transcript ───────────────────────────────────────────────────────────────
 
+export interface TokenCounts {
+  input: number;
+  output: number;
+}
+
 export interface StreamResult {
   text: string;
   is_error: boolean;
   cost_usd: number;
   session_id: string;
+  tokens: TokenCounts;
+}
+
+// The tokens a result's usage names, cached input counted with the rest.
+export function tokens_of_usage(usage: unknown): TokenCounts {
+  const fields = (usage ?? {}) as Record<string, unknown>;
+  const count = (key: string): number => (Number.isFinite(Number(fields[key])) ? Number(fields[key]) : 0);
+  return { input: count("input_tokens") + count("cache_creation_input_tokens") + count("cache_read_input_tokens"), output: count("output_tokens") };
 }
 
 // One line of the agent's stream-json output as transcript lines, and the run's result once it arrives.
@@ -145,7 +177,7 @@ export function read_stream_line(line: string): { lines: string[]; result: Strea
   if (message.type === "result") {
     return {
       lines: [],
-      result: { text: String(message.result ?? ""), is_error: message.is_error === true, cost_usd: Number(message.total_cost_usd) || 0, session_id: String(message.session_id ?? "") },
+      result: { text: String(message.result ?? ""), is_error: message.is_error === true, cost_usd: Number(message.total_cost_usd) || 0, session_id: String(message.session_id ?? ""), tokens: tokens_of_usage(message.usage) },
     };
   }
   if (message.type !== "assistant") return { lines: [], result: null };
@@ -191,4 +223,80 @@ export function check_questions(questions: unknown): Question[] {
 // A short id for an item's branch and worktree: its issue number, or the start of its id.
 export function branch_name_of(item: Item): string {
   return `worktree-item-${item.issue_number ?? item.id.slice(0, 8)}`;
+}
+
+// ── Costs ────────────────────────────────────────────────────────────────────
+
+// One run as the Runs page lists it, without its transcript, with its item's title and how its gates went.
+export interface RunSummary {
+  id: string;
+  item_id: string;
+  item_title: string;
+  repository: string;
+  stage: string;
+  model: string;
+  state: RunState;
+  started_at: string;
+  ended_at: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  gates_failed: number;
+  gates_passed_over: number;
+  gates_run: number;
+  error: string;
+}
+
+export interface CostTotal {
+  key: string;
+  runs: number;
+  tokens: number;
+  cost_usd: number;
+}
+
+// The runs' tokens and cost summed by their stage or model, the costliest first.
+export function sum_runs_by(runs: Pick<RunSummary, "stage" | "model" | "input_tokens" | "output_tokens" | "cost_usd">[], field: "stage" | "model"): CostTotal[] {
+  const totals = new Map<string, CostTotal>();
+  for (const run of runs) {
+    const key = run[field] || "default";
+    const total = totals.get(key) ?? { key, runs: 0, tokens: 0, cost_usd: 0 };
+    totals.set(key, { key, runs: total.runs + 1, tokens: total.tokens + run.input_tokens + run.output_tokens, cost_usd: total.cost_usd + run.cost_usd });
+  }
+  return [...totals.values()].sort((first, second) => second.cost_usd - first.cost_usd || second.tokens - first.tokens || first.key.localeCompare(second.key));
+}
+
+// How a gate result reads in one word: failed, passed over, passed, or none when no gate ran.
+export function gate_verdict(run: Pick<RunSummary, "gates_failed" | "gates_passed_over" | "gates_run">): "failed" | "passed over" | "passed" | "none" {
+  if (run.gates_run === 0) return "none";
+  if (run.gates_failed > run.gates_passed_over) return "failed";
+  return run.gates_failed > 0 ? "passed over" : "passed";
+}
+
+// ── Models ───────────────────────────────────────────────────────────────────
+
+// The stage whose model Review should differ from, and the stage that checks it.
+export const implement_stage = "implement";
+export const review_stage = "review";
+
+// Why a Review run on this model should be thought twice about, when Implement's last run used the same one; empty otherwise.
+export function review_model_warning(stage: string, model: string, runs: Pick<Run, "stage" | "model" | "state" | "started_at">[]): string {
+  if (stage !== review_stage || !model) return "";
+  const implement = runs.filter((run) => run.stage === implement_stage && run.state !== "discarded").sort((first, second) => second.started_at.localeCompare(first.started_at))[0];
+  if (!implement || implement.model.toLowerCase() !== model.toLowerCase()) return "";
+  return `Implement's last run used ${implement.model} too; a review on a second model catches what the first one missed.`;
+}
+
+// ── Path ─────────────────────────────────────────────────────────────────────
+
+export type PathMark = RunState | "skipped" | "current" | "ahead";
+
+// Each stage as the item went through it: its latest run's state, skipped, current with no run yet, or ahead.
+export function path_marks(stage_ids: string[], current: string, runs: Pick<StageRun, "stage" | "state">[]): { stage: string; mark: PathMark }[] {
+  const at = current === "done" ? stage_ids.length : stage_ids.indexOf(current);
+  return stage_ids.map((stage, index) => {
+    const run = runs.find((each) => each.stage === stage);
+    if (run && (index <= at || at < 0)) return { stage, mark: run.state };
+    if (index === at) return { stage, mark: "current" };
+    return { stage, mark: index < at ? "skipped" : "ahead" };
+  });
 }

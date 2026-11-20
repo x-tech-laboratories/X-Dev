@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Client } from "@x-tech-laboratories/x-libs/electron/bridge";
 import { Dialogs } from "@x-tech-laboratories/x-libs/web/react/dialog";
 
+import { desktop_setting_defaults, type DesktopMethods } from "../src/shared/desktop.ts";
 import type { DeviceMethods } from "../src/shared/page_api.ts";
 import { setting_defaults, type DevMethods } from "../src/shared/store.ts";
 import { set_page_api } from "../src/web/api.ts";
@@ -94,5 +95,26 @@ describe("settings", () => {
     expect(screen.getByText("Documents")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Back up" })).toHaveProperty("disabled", false);
     await waitFor(() => expect(backups.list_backups).toHaveBeenCalledTimes(2));
+  });
+
+  it("switches each kind of notification on this computer, and shows none in a browser", async () => {
+    const desktop = {
+      get_desktop_settings: vi.fn(async () => desktop_setting_defaults),
+      set_desktop_setting: vi.fn(async () => undefined),
+      quit_completely: vi.fn(),
+      pick_folder: vi.fn(),
+    } as unknown as Client<DesktopMethods>;
+    set_page_api({ host: "desktop", calls: fake_calls({}), device: null, desktop, on_change: () => () => undefined });
+    render(<SettingsView />);
+
+    fireEvent.click(await screen.findByRole("switch", { name: "A run asked questions" }));
+    await waitFor(() => expect(desktop.set_desktop_setting).toHaveBeenCalledWith("notify_run_asked", false));
+    expect(screen.getByRole("switch", { name: "A pull request's checks finished" })).toBeTruthy();
+    cleanup();
+
+    set_page_api({ host: "web", calls: fake_calls({}), device: null, on_change: () => () => undefined });
+    render(<SettingsView />);
+    await screen.findByRole("button", { name: "More keep changes for" });
+    expect(screen.queryByRole("switch", { name: "A run finished" })).toBeNull();
   });
 });
