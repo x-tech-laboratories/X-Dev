@@ -134,9 +134,13 @@ page is `contained`, so the Shell keeps the window still and the board scrolls i
 
 `src/web/runs/` lists `list_run_summaries`, every run without its transcript, and sums tokens and cost by stage and
 model with `sum_runs_by`. A run's tokens come from the result line's `usage`, added to the run after each turn. The
-item page's Changes section asks the runner for `get_item_diff`, which `src/server/item_diff.ts` reads with git in the
-item's worktree against the commit its first run started from, parses with `src/shared/diff/parse.ts` on parse-diff,
-and `src/web/diff/DiffView.tsx` draws.
+changes view (`src/web/changes/ChangesView.tsx`) asks the runner for `get_changes`, which `src/server/item_diff.ts` reads
+with git in the item's worktree against the run's or the item's start, new files included, each with a fingerprint of
+its content; `get_file_change` for one file's diff with every line, parsed by `src/shared/diff/parse.ts` on parse-diff
+and laid out side by side or in one column with word marks and folds by `src/shared/diff/rows.ts` on jsdiff; and
+`revert_file`. `src/web/diff/` draws the file tree on X-Libs' `Tree` and the file's diff. Reviewed marks are the store
+call `set_file_reviewed` on the run; `list_run_changes` counts each finished run's lines, files and reviewed files for
+the board.
 
 ## Notifications
 

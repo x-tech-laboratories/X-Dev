@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { describe, expect, it } from "vitest";
 
-import { read_item_diff, read_run_changes, sum_numstat, within_limit } from "../src/server/item_diff.ts";
+import { read_changes, read_file_change, read_numstat, read_raw, read_run_changes, revert_file, sum_numstat, within_limit } from "../src/server/item_diff.ts";
 import { diff_totals, parse_unified_diff } from "../src/shared/diff/parse.ts";
 import { insert_run, update_run } from "../src/shared/runs/store.ts";
 import { bind_methods, open_store } from "../src/shared/store.ts";
@@ -111,46 +111,122 @@ function setup() {
   return { checkout, worktree, start, database, store, item_id };
 }
 
-describe("an item's diff", () => {
-  it("shows the branch's commits and uncommitted changes against the commit its first run started from", async () => {
+describe("git's lists", () => {
+  it("read raw changes, a rename naming its old path first", () => {
+    const raw = [":100644 100644 aaa bbb M", "src/a.ts", ":100644 100644 ccc ddd R100", "old.ts", "new.ts", ":000000 100644 000 eee A", "b.ts", ""].join("\0");
+    expect(read_raw(raw)).toEqual([
+      { path: "src/a.ts", old_path: "src/a.ts", status: "changed", blob: "bbb" },
+      { path: "new.ts", old_path: "old.ts", status: "renamed", blob: "ddd" },
+      { path: "b.ts", old_path: "b.ts", status: "added", blob: "eee" },
+    ]);
+  });
+
+  it("read numstat counts, a binary file as null and a rename by its new path", () => {
+    const counts = read_numstat(["3\t1\tsrc/a.ts", "-\t-\tlogo.png", "0\t0\t", "old.ts", "new.ts", ""].join("\0"));
+    expect([...counts]).toEqual([
+      ["src/a.ts", { additions: 3, deletions: 1 }],
+      ["logo.png", null],
+      ["new.ts", { additions: 0, deletions: 0 }],
+    ]);
+  });
+});
+
+describe("an item's changes", () => {
+  it("lists the files changed since the item's work started, committed, uncommitted and new, each with a fingerprint", async () => {
     const { checkout, worktree, start, database, store, item_id } = setup();
     const run_id = insert_run(database, { item_id, stage: "implement", model: "", effort: "", session_id: "s", start_commit: start, status_before: "{}", input: "", started_at: "2026-11-20T10:00:00.000Z" });
     writeFileSync(join(worktree, "board.ts"), "export const lanes = 1;\n");
     git(worktree, "add", ".");
     git(worktree, "commit", "-q", "-m", "feat: board");
     const end = git(worktree, "rev-parse", "HEAD");
-    update_run(database, run_id, { state: "done", end_commit: end });
+    update_run(database, run_id, { state: "done", end_commit: end, reviewed: { "board.ts": git(worktree, "rev-parse", "HEAD:board.ts") } });
     writeFileSync(join(worktree, "README.md"), "# Test\nchanged\n");
+    mkdirSync(join(worktree, "docs"));
+    writeFileSync(join(worktree, "docs", "new.md"), "one\ntwo\n");
+    const context = { database, item: store.get_item(item_id), repositories: { [repository]: checkout } };
 
-    const diff = await read_item_diff(database, store.get_item(item_id), { [repository]: checkout });
+    const changes = await read_changes(context, "item", "");
 
-    expect(diff).toMatchObject({ base: start, truncated: false, problem: "" });
-    expect(diff.files.map((file) => [file.path, file.additions, file.deletions])).toEqual([
-      ["README.md", 1, 1],
-      ["board.ts", 1, 0],
+    expect(changes).toMatchObject({ base: start, run_id, problem: "" });
+    expect(changes.files.map((file) => [file.path, file.status, file.additions, file.deletions])).toEqual([
+      ["board.ts", "added", 1, 0],
+      ["docs/new.md", "added", 2, 0],
+      ["README.md", "changed", 1, 1],
     ]);
-    expect(await read_run_changes(database, [run_id, "missing"], { [repository]: checkout })).toEqual({ [run_id]: { additions: 1, deletions: 0 } });
+    expect(changes.files[0]!.fingerprint).toBe(git(worktree, "rev-parse", "HEAD:board.ts"));
+    expect(changes.files[2]!.fingerprint).toBe(git(worktree, "hash-object", "README.md"));
+    expect(await read_run_changes(database, [run_id, "missing"], { [repository]: checkout })).toEqual({ [run_id]: { additions: 1, deletions: 0, files: 1, reviewed: 1 } });
     rmSync(checkout, { recursive: true, force: true });
   });
 
-  it("counts from where the branch left the default branch before any run", async () => {
-    const { checkout, worktree, start, database, store, item_id } = setup();
-    writeFileSync(join(worktree, "new.txt"), "new\n");
+  it("counts a run's changes from the commit it started on", async () => {
+    const { checkout, worktree, database, store, item_id } = setup();
+    writeFileSync(join(worktree, "first.txt"), "first\n");
     git(worktree, "add", ".");
+    git(worktree, "commit", "-q", "-m", "feat: first");
+    const middle = git(worktree, "rev-parse", "HEAD");
+    insert_run(database, { item_id, stage: "plan", model: "", effort: "", session_id: "s", start_commit: git(worktree, "rev-parse", "HEAD~1"), status_before: "{}", input: "", started_at: "2026-11-20T09:00:00.000Z" });
+    const second = insert_run(database, { item_id, stage: "implement", model: "", effort: "", session_id: "s", start_commit: middle, status_before: "{}", input: "", started_at: "2026-11-20T10:00:00.000Z" });
+    writeFileSync(join(worktree, "second.txt"), "second\n");
+    const context = { database, item: store.get_item(item_id), repositories: { [repository]: checkout } };
 
-    const diff = await read_item_diff(database, store.get_item(item_id), { [repository]: checkout });
-
-    expect(diff.base).toBe(start);
-    expect(diff.files.map((file) => file.path)).toEqual(["new.txt"]);
+    expect((await read_changes(context, "run", "")).files.map((file) => file.path)).toEqual(["second.txt"]);
+    expect((await read_changes(context, "run", second)).run_id).toBe(second);
+    expect((await read_changes(context, "item", "")).files.map((file) => file.path)).toEqual(["first.txt", "second.txt"]);
     rmSync(checkout, { recursive: true, force: true });
   });
 
-  it("says why there is nothing to show without a checkout or a worktree", async () => {
+  it("shows one file whole, a new file too, and puts files back as they were", async () => {
+    const { checkout, worktree, start, database, store, item_id } = setup();
+    insert_run(database, { item_id, stage: "implement", model: "", effort: "", session_id: "s", start_commit: start, status_before: "{}", input: "", started_at: "2026-11-20T10:00:00.000Z" });
+    writeFileSync(join(worktree, "README.md"), "# Test\nline\nmore\n");
+    writeFileSync(join(worktree, "fresh.txt"), "fresh\n");
+    const context = { database, item: store.get_item(item_id), repositories: { [repository]: checkout } };
+
+    const readme = await read_file_change(context, "run", "", "README.md");
+    expect(readme.file!.hunks[0]!.lines.map((line) => [line.kind, line.text])).toEqual([
+      ["context", "# Test"],
+      ["context", "line"],
+      ["added", "more"],
+    ]);
+    expect((await read_file_change(context, "run", "", "fresh.txt")).file).toMatchObject({ path: "fresh.txt", status: "added", additions: 1 });
+    await expect(read_file_change(context, "run", "", "nothing.txt")).rejects.toThrow("has not changed since then");
+
+    expect(await revert_file(context, "run", "", "README.md")).toMatchObject({ base: start });
+    await revert_file(context, "run", "", "fresh.txt");
+    expect(readFileSync(join(worktree, "README.md"), "utf8")).toBe("# Test\nline\n");
+    expect(existsSync(join(worktree, "fresh.txt"))).toBe(false);
+    expect((await read_changes(context, "run", "")).files).toEqual([]);
+    rmSync(checkout, { recursive: true, force: true });
+  });
+
+  it("puts back a renamed file under its old name and a deleted one whole", async () => {
+    const { checkout, worktree, start, database, store, item_id } = setup();
+    insert_run(database, { item_id, stage: "implement", model: "", effort: "", session_id: "s", start_commit: start, status_before: "{}", input: "", started_at: "2026-11-20T10:00:00.000Z" });
+    git(worktree, "mv", "README.md", "MOVED.md");
+    git(worktree, "commit", "-q", "-m", "refactor: move");
+    const context = { database, item: store.get_item(item_id), repositories: { [repository]: checkout } };
+    expect((await read_changes(context, "run", "")).files).toMatchObject([{ path: "MOVED.md", old_path: "README.md", status: "renamed" }]);
+
+    await revert_file(context, "run", "", "MOVED.md");
+    expect(existsSync(join(worktree, "MOVED.md"))).toBe(false);
+    rmSync(join(worktree, "README.md"));
+    const deleted = (await read_changes(context, "run", "")).files;
+    expect(deleted).toMatchObject([{ path: "README.md", status: "removed", fingerprint: "deleted" }]);
+
+    await revert_file(context, "run", "", "README.md");
+    expect(readFileSync(join(worktree, "README.md"), "utf8")).toBe("# Test\nline\n");
+    rmSync(checkout, { recursive: true, force: true });
+  });
+
+  it("says why there is nothing to show without a checkout, a worktree or a run's start", async () => {
     const { checkout, database, store, item_id } = setup();
     const item = store.get_item(item_id);
 
-    expect((await read_item_diff(database, item, {})).problem).toContain("does not know where");
-    expect((await read_item_diff(database, { ...item, branch: "" }, { [repository]: checkout })).problem).toContain("no worktree yet");
+    expect((await read_changes({ database, item, repositories: {} }, "item", "")).problem).toContain("does not know where");
+    expect((await read_changes({ database, item: { ...item, branch: "" }, repositories: { [repository]: checkout } }, "item", "")).problem).toContain("no worktree yet");
+    expect((await read_changes({ database, item, repositories: { [repository]: checkout } }, "run", "")).problem).toContain("no commit it started from");
+    await expect(revert_file({ database, item, repositories: {} }, "item", "", "README.md")).rejects.toThrow("does not know where");
     expect(await read_run_changes(database, [], {})).toEqual({});
     rmSync(checkout, { recursive: true, force: true });
   });

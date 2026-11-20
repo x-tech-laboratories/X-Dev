@@ -14,7 +14,7 @@ import { check_item, is_repository, issue_link, item_kinds, repository_of_remote
 import { answers_input, branch_name_of, build_run_input, needs_input, parse_report, type Run, type StreamResult } from "../shared/runs/model.ts";
 import { read_runner_settings, type ItemDraft, type RunnerMethods, type RunnerSettings, type StartOptions } from "../shared/runs/runner.ts";
 import { add_run_tokens, finish_run, find_run, insert_run, latest_report, runs_in_state, set_item_fields, update_run } from "../shared/runs/store.ts";
-import { read_item_diff, read_run_changes } from "./item_diff.ts";
+import { read_changes, read_file_change, read_run_changes, revert_file } from "./item_diff.ts";
 import { checkout_state, run_gates } from "./gates.ts";
 import { done, type Stage, type StagesMethods } from "../shared/stages/model.ts";
 import { find_or_open_issue, github_account, github_sign_out, start_github_sign_in } from "./github.ts";
@@ -22,7 +22,7 @@ import type { GitHubSync } from "./github_sync.ts";
 import { tools_guide, type RunTools } from "./run_tools.ts";
 import { start_live_run, type LiveRun } from "./live_run.ts";
 import { can_retry, previous_attempt_section } from "../shared/runs/attempts.ts";
-import { steer_decisions } from "../shared/runs/steering.ts";
+import { revert_decisions, steer_decisions } from "../shared/runs/steering.ts";
 import { is_run_mode, starting_mode } from "../shared/runs/modes.ts";
 import type { UserRole } from "../shared/runs/transcript.ts";
 
@@ -420,7 +420,21 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       if (account) await github_sign_out(account, program);
       after_write();
     },
-    get_item_diff: (item_id) => read_item_diff(database(), item_of(item_id), read_settings().repositories),
+    get_changes: (item_id, scope, run_id) => read_changes({ database: database(), item: item_of(item_id), repositories: read_settings().repositories }, scope, run_id),
+    get_file_change: (item_id, scope, run_id, path) => read_file_change({ database: database(), item: item_of(item_id), repositories: read_settings().repositories }, scope, run_id, path),
+    revert_file: async (item_id, scope, run_id, path) => {
+      if (current && find_run(database(), current.run_id).item_id === item_id) throw new Error("a run on this item is under way; stop it or let it finish first");
+      const item = item_of(item_id);
+      const done_at = await revert_file({ database: database(), item, repositories: read_settings().repositories }, scope, run_id, path);
+      if (!done_at.run_id) return after_write();
+      const run = find_run(database(), done_at.run_id);
+      const { [path]: _was, ...reviewed } = run.reviewed;
+      update_run(database(), run.id, { reviewed, reverts: [...run.reverts, { path, scope, base: done_at.base, at: now() }] });
+      // Later stages read in the status sheet that the change was taken back on purpose.
+      const status = revert_decisions(item.status, path, scope, stages.list_stages().stages.find((stage) => stage.id === run.stage)?.label ?? run.stage);
+      if (status) set_item_fields(database(), item.id, { status: JSON.stringify(status) });
+      after_write();
+    },
     list_run_changes: (run_ids) => read_run_changes(database(), run_ids, read_settings().repositories),
     sync_github: async (item_id) => {
       if (!github) throw new Error("this copy of X-Dev does not reach GitHub");

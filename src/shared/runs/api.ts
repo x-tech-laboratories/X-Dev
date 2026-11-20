@@ -36,6 +36,10 @@ export const runs_api = {
     description: "Moves an item to another stage, usually an earlier one, so that stage is the one its next run takes; nothing is run and no run is undone.",
     params: [{ name: "item_id", schema: id_of("item") }, { name: "stage", schema: text("The stage's id, such as plan.") }],
   },
+  set_file_reviewed: {
+    description: "Marks a file the run changed as reviewed by the user, with the fingerprint of the content they looked at, so the mark clears once the file changes again; an empty fingerprint takes the mark off.",
+    params: [{ name: "run_id", schema: id_of("run") }, { name: "path", schema: text("The file's path in the worktree.") }, { name: "fingerprint", schema: text("The fingerprint the changes list gave for the file; empty to take the mark off.") }],
+  },
   save_item_notes: {
     description: "Sets the notes the item's next run is handed, such as answers, corrections or a change of scope.",
     params: [{ name: "item_id", schema: id_of("item") }, { name: "notes", schema: text("The notes; empty for none.") }],

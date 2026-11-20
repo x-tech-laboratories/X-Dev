@@ -342,6 +342,34 @@ describe("a run's permission mode", () => {
   });
 });
 
+describe("a run's changes", () => {
+  it("lists and shows what a run changed, and reverts a file, noting it in the run and the status sheet", async () => {
+    const { store, runner, checkout, item } = await setup();
+    const id = item("WRITE-FILE STATUS");
+    const run_id = await runner.methods.start_run(id, {});
+    await runner.idle();
+
+    const changes = await runner.methods.get_changes(id, "run", run_id);
+    expect(changes.files.map((file) => [file.path, file.status])).toEqual([["made-by-run.txt", "added"]]);
+    expect((await runner.methods.get_file_change(id, "run", run_id, "made-by-run.txt")).file?.additions).toBe(1);
+    store.set_file_reviewed(run_id, "made-by-run.txt", changes.files[0]!.fingerprint);
+
+    await runner.methods.revert_file(id, "run", run_id, "made-by-run.txt");
+    expect(existsSync(join(checkout, ".claude", "worktrees", "item-7", "made-by-run.txt"))).toBe(false);
+    expect(store.get_run(run_id)).toMatchObject({ reviewed: {}, reverts: [{ path: "made-by-run.txt", scope: "run", base: store.get_run(run_id).start_commit }] });
+    expect(store.get_item(id).status.decisions).toBe("- The user reverted made-by-run.txt to how it was before the Plan run; do not bring the change back.");
+  });
+
+  it("refuses to revert while a run on the item is under way", async () => {
+    const { store, runner, item } = await setup();
+    const id = item("SLOW");
+    const run_id = await runner.methods.start_run(id, {});
+    await until(() => store.get_run(run_id).transcript !== "");
+
+    await expect(runner.methods.revert_file(id, "run", run_id, "README.md")).rejects.toThrow("a run on this item is under way");
+  });
+});
+
 describe("retrying a stage", () => {
   it("runs the stage again on the worktree as it was, telling the agent how the last attempt ended", async () => {
     const { store, runner, checkout, item } = await setup();

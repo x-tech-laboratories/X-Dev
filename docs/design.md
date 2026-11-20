@@ -357,8 +357,28 @@ Other backends, such as OpenCode, can be added as plugins later.
   the form** opens the same form empty. The agent's run is short and cheap (a setting picks its
   model, Haiku unless set), and it changes nothing until the user saves.
 - **Item**: the issue and its status sheet, then the runs as a timeline, each with its report (editable), its live
-  transcript, Stop, Interrupt or Retry, and its cost; the branch's diff; the pull request and its checks; notes for
-  the next run.
+  transcript and changes, Stop, Interrupt or Retry, and its cost; the changes view; the pull request and its checks;
+  notes for the next run.
+
+### Changes view
+
+The way to show and confirm what an agent changed, on the item page and as a tab beside each run's transcript:
+
+- **This run** counts from the commit the run started on, **Whole item** from the item's first run's.
+  Committed, uncommitted and new files all count. It reads again while a run edits.
+- On the left, the changed files as a folder tree: folders fold, each file has a letter for added,
+  modified, deleted or renamed and its added and removed lines, the arrow keys walk it, and a box
+  filters it by name.
+- On the right, the picked file's diff side by side, old on the left and new on the right, with line
+  numbers, changed lines tinted and the words that changed within a line tinted again, and unchanged
+  stretches folded behind "Show N more unchanged lines". A switch shows it in one column, which it
+  always is on a narrow window or a phone.
+- **Reviewed** ticks a file for the run, kept with the fingerprint of what it holds, so the tick clears
+  once the file changes again; the view counts "3 of 7 reviewed" and the board card shows the count.
+- **Revert File** puts a file back as it was when the scope started, after a confirm: restored, or
+  removed when the change added it. It waits while a run on the item is under way, and the run and the
+  status sheet's Decisions note it, so later stages do not bring the change back. Together with
+  Manual mode's per-edit approval, this is how the user sees and confirms changed files.
 - **Runs**: every run across items in a table of item, stage, model, state, start, duration, tokens,
   cost and gates, filtered by words and state, a row opening its item at that run; above it the tokens
   and cost summed by stage and by model.
@@ -401,8 +421,12 @@ reports sync; worktrees and stage files stay on the machine that runs the agents
 
 Missing from X-Libs, to be built there rather than in X-Dev:
 
-- A diff view: a branch's changes by file, with added and removed lines. X-Dev's is built app-local in
-  `src/web/diff/` and `src/shared/diff/`, on parse-diff, with nothing of X-Dev in its props, ready to move.
+- A diff view: a file's change side by side or in one column with word marks and folds, and the changed
+  files as a folder tree. X-Dev's is built app-local in `src/web/diff/` and `src/shared/diff/`, on
+  parse-diff and jsdiff, with nothing of X-Dev in its props, ready to move.
+- An agent transcript: an agent session's stream folded into steps and drawn with thinking, tool calls,
+  edits as diffs, permission requests and the user's messages (`src/shared/runs/transcript.ts`,
+  `src/web/transcript/`), and a program talked to in lines both ways (`src/server/line_program.ts`).
 - A GitHub client on Octokit: issues, labels, comments, pull requests and checks, for any app.
 - Git worktrees: make, list, reset and remove one, through `run_program`.
 - Markdown files with frontmatter: read and write them, keeping keys the app does not know.

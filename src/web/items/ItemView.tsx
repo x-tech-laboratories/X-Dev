@@ -26,7 +26,7 @@ import { mode_option, ModePicker } from "../live/ModePicker.tsx";
 import type { RunMode } from "../../shared/runs/modes.ts";
 import { confirm_retry_from_clean, RetryButton } from "../live/RetryButton.tsx";
 import { read_transcript } from "../../shared/runs/transcript.ts";
-import { BranchChanges } from "./BranchChanges.tsx";
+import { ChangesView, changes_key } from "../changes/ChangesView.tsx";
 import { link_issue } from "./index.tsx";
 import { PullRequestPanel } from "./PullRequestPanel.tsx";
 import { run_state_labels, stage_label } from "./words.ts";
@@ -373,7 +373,9 @@ export function ItemView({ id, run_id }: { id: string; run_id?: string }) {
             <Section title="Runs">
               {run_list.length === 0 ? <p className="muted">No runs yet.</p> : run_list.map((run) => <div key={run.id} id={`run-${run.id}`}><RunCard run={run} stages={all_stages} is_latest={run.id === latest?.id} is_stage_latest={run.id === run_list.find((each) => each.stage === run.stage && each.state !== "discarded")?.id} focused={run.id === run_id} /></div>)}
             </Section>
-            <BranchChanges item={found} runs={run_list} />
+            <Section title="Changes">
+              <ChangesView key={found.branch} item_id={found.id} runs={run_list.filter((run) => run.state !== "discarded")} refresh_key={changes_key(run_list)} />
+            </Section>
           </>
         );
       }}

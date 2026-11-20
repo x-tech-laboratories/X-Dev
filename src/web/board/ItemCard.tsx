@@ -311,6 +311,11 @@ export function ItemCard({ item, stage, stages, runs, changes = {}, can_run }: I
                 <span className="tone-good">+{counts.additions}</span> <span className="tone-bad">−{counts.deletions}</span>
               </span>
             )}
+            {counts && counts.files > 0 && (
+              <span title="Files you marked reviewed in the run's changes">
+                {counts.reviewed} of {counts.files} reviewed
+              </span>
+            )}
             {run.cost_usd > 0 && <span>{money(run.cost_usd)}</span>}
             <Age epoch={Date.parse(run.ended_at ?? run.started_at) / 1000} />
           </div>

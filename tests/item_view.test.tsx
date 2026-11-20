@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Client } from "@x-tech-laboratories/x-libs/electron/bridge";
 
 import { create_stage_files } from "../src/server/stage_files.ts";
-import type { RunnerMethods } from "../src/shared/runs/runner.ts";
+import type { ChangeScope, ChangeSet, RunnerMethods } from "../src/shared/runs/runner.ts";
 import { runner_setting_defaults } from "../src/shared/runs/runner.ts";
 import { insert_run, propose, update_run } from "../src/shared/runs/store.ts";
 import type { StagesMethods } from "../src/shared/stages/model.ts";
@@ -23,6 +23,8 @@ import { App } from "../src/web/App.tsx";
 function as_client(methods: object): unknown {
   return Object.fromEntries(Object.entries(methods as Record<string, (...args: unknown[]) => unknown>).map(([name, call]) => [name, async (...args: unknown[]) => call(...args)]));
 }
+
+const changed_file = { path: "src/board.ts", old_path: "src/board.ts", status: "changed" as const, additions: 1, deletions: 1, binary: false, fingerprint: "f1" };
 
 const sample_diff = ["diff --git a/src/board.ts b/src/board.ts", "index 1111111..2222222 100644", "--- a/src/board.ts", "+++ b/src/board.ts", "@@ -1,2 +1,2 @@", " keep", "-old line", "+new line", ""].join("\n");
 
@@ -54,7 +56,9 @@ function fake_page(with_runner = true) {
     sign_in_github: vi.fn(async () => ({ code: "ABCD-1234", url: "https://github.com/login/device" })),
     sign_out_github: vi.fn(async () => undefined),
     describe_item: vi.fn(async () => ({ title: "Swimlane board", kind: "feature" as const, repository: "x-tech-laboratories/X-Dev", body: "One lane per item." })),
-    get_item_diff: vi.fn(async () => ({ base: "abc123", files: parse_unified_diff(sample_diff), truncated: false, problem: "" })),
+    get_changes: vi.fn(async (_item_id: string, _scope: ChangeScope, _run_id: string): Promise<ChangeSet> => ({ base: "abc123", run_id: "", files: [changed_file], problem: "" })),
+    get_file_change: vi.fn(async () => ({ file: parse_unified_diff(sample_diff)[0]!, truncated: false })),
+    revert_file: vi.fn(async () => undefined),
     list_run_changes: vi.fn(async () => ({})),
   } satisfies RunnerMethods;
   set_page_api({
@@ -237,26 +241,56 @@ describe("the items page", () => {
 });
 
 describe("an item's changes and runs", () => {
-  it("shows the branch's diff by file, with added and removed lines", async () => {
+  it("shows the changed files as a tree and the picked file's diff side by side, or in one column", async () => {
     const { store, runner } = fake_page();
     const id = store.save_item(item);
     render(<App />);
     go(`#/items/${id}`);
 
     expect(await screen.findByText(/1 file changed/)).toBeTruthy();
-    expect(runner.get_item_diff).toHaveBeenCalledWith(id);
-    expect(screen.getAllByText("src/board.ts").length).toBeGreaterThan(0);
-    expect(screen.getByText("new line").closest("tr")!.className).toBe("tone-fill-good");
-    expect(screen.getByText("old line").closest("tr")!.className).toBe("tone-fill-bad");
+    expect(runner.get_changes).toHaveBeenCalledWith(id, "item", "");
+    expect(screen.getByRole("tree", { name: "Changed files" })).toBeTruthy();
+    const split = await screen.findByRole("table", { name: /src\/board.ts, old on the left/ });
+    expect(within(split).getByText("old").closest("td")!.className).toContain("tone-fill-bad");
+    expect(within(split).getByText("new").className).toContain("tone-fill-good");
+
+    fireEvent.click(screen.getByRole("radio", { name: "Unified" }));
+    const unified = await screen.findByRole("table", { name: "Changes to src/board.ts" });
+    expect(within(unified).getByText("new").closest("tr")!.className).toBe("tone-fill-good");
   });
 
-  it("says why there is no diff to show, and that it is read on the desktop", async () => {
+  it("says why there are no changes to show", async () => {
     const { store, runner } = fake_page();
-    runner.get_item_diff.mockResolvedValueOnce({ base: "", files: [], truncated: false, problem: "The item has no worktree yet; its first run makes one." });
+    runner.get_changes.mockResolvedValue({ base: "", run_id: "", files: [], problem: "The item has no worktree yet; its first run makes one." });
     const id = store.save_item(item);
     render(<App />);
     go(`#/items/${id}`);
     expect(await screen.findByText(/no worktree yet/)).toBeTruthy();
+  });
+
+  it("switches to the whole item's changes, ticks a file reviewed and reverts one after a confirm", async () => {
+    const { database, store, runner } = fake_page();
+    const id = store.save_item(item);
+    const run = add_run(database, id, { state: "done" });
+    runner.get_changes.mockImplementation(async (_item_id, scope) => ({ base: "abc123", run_id: run, files: scope === "run" ? [changed_file] : [changed_file, { ...changed_file, path: "docs/notes.md", old_path: "docs/notes.md", status: "added" as const }], problem: "" }));
+    render(<App />);
+    go(`#/items/${id}`);
+
+    const changes = (await screen.findByRole("heading", { name: "Changes" })).closest("section")!;
+    expect(await within(changes).findByText(/0 of 1 reviewed/)).toBeTruthy();
+    expect(runner.get_changes).toHaveBeenCalledWith(id, "run", "");
+    fireEvent.click(within(changes).getByRole("checkbox", { name: "Reviewed" }));
+    await waitFor(() => expect(store.get_run(run).reviewed).toEqual({ "src/board.ts": "f1" }));
+    expect(await within(changes).findByText(/1 of 1 reviewed/)).toBeTruthy();
+
+    fireEvent.click(within(changes).getByRole("radio", { name: "Whole item" }));
+    expect(await within(changes).findByText(/2 files changed/)).toBeTruthy();
+    fireEvent.click(within(changes).getByText("notes.md"));
+    fireEvent.click(within(changes).getByRole("button", { name: "Revert File…" }));
+    const dialog = await screen.findByRole("dialog", { name: /Revert docs\/notes.md/ });
+    expect(within(dialog).getByText(/The file is removed/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revert File" }));
+    await waitFor(() => expect(runner.revert_file).toHaveBeenCalledWith(id, "item", run, "docs/notes.md"));
   });
 
   it("warns when Review would run on the model Implement's last run used", async () => {

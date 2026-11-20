@@ -48,7 +48,11 @@ What it does so far:
   tool call waits in the transcript for **Allow**, **Allow for This Run** or **Deny**, and the run shows as waiting for
   approval with a notification. The **Runs** page lists every
   run across items, filtered by words and state, under their tokens and cost summed by stage and by model; a row opens
-  its item at that run. The item's page shows its branch's changes since its work started, file by file.
+  its item at that run. The item's page, and a tab beside each run's transcript, shows what changed since the run or the
+  item's work started: the changed files as a folder tree with their status and line counts, filtered by name, and the
+  picked file's diff side by side with changed words marked (in one column on request and on a narrow window). Tick a
+  file **Reviewed**, which clears if it changes again and is counted on the board card, or **Revert File** to put it
+  back as it was, which the run and the status sheet note.
 - **Gates:** once a run hands in its report, X-Dev checks the change itself, by the gates the stage file names: the
   report and status sheet, the main checkout left alone, only allowed paths changed, Specify's tests failing first and
   kept after, tests, types and lint, the coverage floor, Conventional Commits and their trailer, no secrets, no
