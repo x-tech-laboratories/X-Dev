@@ -91,11 +91,13 @@ that item instead.
 
 ## Gates
 
-`src/shared/gates/model.ts` holds each check as a function of what changed (files with the lines they added, commits,
-the coverage config before and after, the manifests), so it needs no repository. `src/server/gates.ts` reads those from
-git between a base and the worktree, uncommitted and untracked files included, runs the repository's own tests, type
-check and lint for the gates that need them, and gives a result per gate. The runner runs a stage's gates once its
-report arrives and stores the results and the user's overrides on the run; `src/cli/check.ts` is `x-dev-check`.
+`src/shared/gates/model.ts` holds X-Dev's own checks as functions of what changed and passes on the X-Libs change checks
+(`@x-tech-laboratories/x-libs/change_checks`) for the shared ones, so none needs a repository. `src/server/gates.ts`
+reads the change with X-Libs `read_change` between a base and the worktree, uncommitted and untracked files included,
+adds X-Dev's gates to an X-Libs check registry, runs the repository's own tests, type check and lint for the gates that
+need them, and gives a result per gate. The runner runs a stage's gates once its
+report arrives and stores the results and the user's overrides on the run; `src/cli/check.ts` is `x-dev-check`, X-Libs'
+`run_check_command` with that registry.
 
 ## GitHub
 

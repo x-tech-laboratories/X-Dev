@@ -37,8 +37,10 @@ What it does so far:
 - **Gates:** once a run hands in its report, X-Dev checks the change itself, by the gates the stage file names: the
   report and status sheet, the main checkout left alone, only allowed paths changed, Specify's tests failing first and
   kept after, tests, types and lint, the coverage floor, Conventional Commits and their trailer, no secrets, no
-  leftovers, one-line comments, file size, libraries X-Libs wraps, and new dependencies' licences. A failed gate holds
-  the item until the stage runs again or you pass the gate over with a reason, which the next stage reads.
+  leftovers, one-line comments, file size, libraries X-Libs wraps, and new dependencies' licences. The checks every
+  X-app shares (commits, secrets, leftovers, comments, coverage, X-Libs imports, dependencies) are X-Libs' change checks;
+  the rest are X-Dev's own. A failed gate holds the item until the stage runs again or you pass the gate over with a
+  reason, which the next stage reads.
 - **Repositories:** a page of the repositories X-Dev works on, each with its checkout on this computer and its open
   items. A checkout is added by choosing its folder; its owner/name is read from its git remote.
 - **New items:** described in a few lines for an agent to fill the form in from, or filled in by hand. The describing
@@ -126,9 +128,12 @@ made it or not:
 ```sh
 npx x-dev-check                     # the gates that need only the change, against the branch point from origin/main
 npx x-dev-check --base origin/main commits secrets leftovers
+npx x-dev-check --working-tree      # uncommitted and untracked files count too
 ```
 
-It prints each gate's result and findings and exits with 1 when any fails. X-Dev's own CI runs it on every pull
+It is X-Libs' `x-libs-check` with X-Dev's own gates added, so it takes the same options and the same `"x-libs-check"`
+settings in `package.json`. It prints each gate's result and findings and exits with 1 when any fails, or 2 when a
+gate is not known. X-Dev's own CI runs it on every pull
 request. A gate that cannot check a repository, such as `tests-pass` where there is no vitest, says so as not checked
 rather than passing. `ci` reads the pull request's checks through `gh`, so only the desktop app's runs check it: checks
 still running hold the item, and it moves on by itself once they pass.
