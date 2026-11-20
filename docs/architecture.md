@@ -7,9 +7,9 @@ the page a `PageApi` (`src/shared/bridge.ts`):
 
 | Host    | Where the data is                                   | How a call travels                                   | Sync                        |
 | ------- | --------------------------------------------------- | ---------------------------------------------------- | --------------------------- |
-| web     | the server's SQLite file                            | `POST api/call/<method>` with the arguments as JSON  | none; the browser is online |
-| desktop | `dev.db` in Electron's profile folder               | IPC through the preload to the main process, then HTTP over the daemon's socket | X-Libs `sync_client` in the daemon |
-| android | SQLite in WebAssembly, saved to IndexedDB           | straight to the store in the same page               | X-Libs `sync_client`        |
+| web     | the server's, or a desktop daemon's that lets other devices connect | `POST api/call/<method>` with the arguments as JSON, the session's cookie with it | none; the browser is online |
+| desktop | `dev.db` in Electron's profile folder, or another computer's daemon | IPC through the preload to the main process, then HTTP over the daemon's socket, or http(s) with this device's token (X-Libs `connections` and `daemon_link`) | X-Libs `sync_client` in the daemon |
+| android | the daemon it connects to                           | `fetch` from the page with the phone's token (`src/web/hosts/remote.ts`) | none; the daemon syncs |
 
 Views never ask which host they are on. They call `calls().<method>(...)` from `src/web/api.ts` and load with
 `use_data`, which reloads quietly whenever `data_watch` is bumped: after this page writes, and when another page or
@@ -29,6 +29,34 @@ The tray, background running and start at login are kept in `desktop.json` besid
 settings. Without "Keep running in the background" the daemon stops half a minute after its last window. A profile other
 than the installed app's, such as `X_DEV_USER_DATA` in dev, gets a socket and log of its own and never writes the
 login entry.
+
+## Other devices
+
+A desktop daemon reaches other devices only once **Let other devices connect** is on. `src/daemon/remote_access.ts`
+keeps that setting in `remote.json` and the admins in `remote-admins` (X-Libs `server/passwords`, mode 600) and, while it
+is on, listens with `build_app` from `src/server/app.ts`, the same Fastify app as the web server, on the daemon's
+database, event stream, backups, stages and runner. Its settings and admins are calls on the socket alone (`/api/remote`).
+
+`build_app` signs every request in through X-Libs `server/account_sign_in` and lets only the top role reach
+`/api/backup/`, `/api/stages/` and `/api/runner/`. The runner's calls each have a spec in `runner_api`
+(`src/shared/runs/api.ts`) and the stage files' in `stages_api`, both in `/api/openapi.json` and as MCP tools, `src/server/mcp_calls.ts` serving them on the server and on the daemon's local endpoint alike, the stage and runner tools to an admin only. `add_item` (`src/server/item_calls.ts`) is the New item form's save as one call: the checkout added, the item saved and its issue found or opened. `src/server/remote_runner.ts` refuses, from the network and from MCP, the settings that name the programs X-Dev
+starts and the permission mode. `GET /api/abilities` tells a page whether it may start runs and change stages. CORS is
+open, as the phone calls from a page of its own with a token. The run tools' own server stays on 127.0.0.1 with a
+token per run, and is never reached through any of this.
+
+The desktop app's main process keeps the list of daemons with X-Libs `connections` in `connections.json` and sends the
+page's calls through `daemon_link`, except sync, certificates, the local MCP endpoint, its own settings and who may
+connect, which always belong to this computer's daemon. Choosing another daemon reloads every window, and
+`daemon_is_here` in the page api then hides what needs this computer's screen, such as the folder dialog. For a daemon
+elsewhere it shows that daemon's notices itself with `watch_notices` in `src/shared/runs/notices.ts`, which reads
+`list_watched_runs` and the open items after each change event. The phone does the same while it is open or in the background, showing each at once through Capacitor's local notifications, keyed by X-Libs `notice_id`.
+
+A daemon's runner acts only on runs it started, which keep a folder under its `runs/`: a run that arrived by sync from
+another computer is not failed at start, answered, or discarded there.
+
+The runner is one table: `RunnerMethods` and `runner_method_names` name its calls, `runner_api` describes them, and the
+socket, the network, the desktop bridge and the phone's and browser's proxies all serve whatever is in it. A new
+runner call needs only those three entries and its implementation in `src/server/runner.ts`.
 
 ## Features
 
@@ -78,7 +106,8 @@ Stages are files, not rows: `src/server/stage_files.ts` reads and writes the `st
 the `yaml` package, so keys and comments it does not know survive, and watches the folder to announce changes made in
 other programs. `src/shared/stages/model.ts` holds the fields and the rules the page shares, and
 `src/server/default_stages.ts` the default stages. The daemon serves the calls under `/api/stages`, the main process
-passes them on as the `x_dev_stages` bridge, and the web server serves them to admins only; a phone has none.
+passes them on as the `x_dev_stages` bridge, and the web server and a daemon that lets other devices connect serve them
+to admins only.
 
 ## Runs
 

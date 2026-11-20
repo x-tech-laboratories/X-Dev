@@ -10,6 +10,7 @@ import { hash_password } from "@x-tech-laboratories/x-libs/server/passwords";
 
 import { build_app } from "../src/server/app.ts";
 import { create_stage_files } from "../src/server/stage_files.ts";
+import { stages_method_names } from "../src/shared/stages/model.ts";
 import { method_names, open_store } from "../src/shared/store.ts";
 
 let app: FastifyInstance;
@@ -109,14 +110,14 @@ describe("server", () => {
     const document = (await signed({ method: "GET", url: "/api/openapi.json" })).json() as { paths: Record<string, { post: { operationId: string; tags: string[] } }> };
     expect(document.paths["/api/call/get_item"]!.post).toMatchObject({ operationId: "get_item", tags: ["read"] });
     expect(document.paths["/api/call/save_item"]!.post.tags).toEqual(["change"]);
-    expect(Object.keys(document.paths)).toHaveLength(method_names.length);
+    expect(Object.keys(document.paths)).toHaveLength(method_names.length + stages_method_names.length);
   });
 
   it("serves every call as an MCP tool", async () => {
     await start();
     const listed = await mcp("tools/list");
     const tools = listed.tools as { name: string; annotations: { readOnlyHint: boolean } }[];
-    expect(tools.map((tool) => tool.name).sort()).toEqual([...method_names].sort());
+    expect(tools.map((tool) => tool.name).sort()).toEqual([...method_names, ...stages_method_names].sort());
     expect(tools.find((tool) => tool.name === "list_items")!.annotations.readOnlyHint).toBe(true);
     expect(tools.find((tool) => tool.name === "save_item")!.annotations.readOnlyHint).toBe(false);
 

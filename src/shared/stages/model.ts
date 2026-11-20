@@ -85,6 +85,7 @@ export interface StageList {
 // What the page asks of whichever host keeps the stage files.
 export interface StagesMethods {
   list_stages: () => StageList;
+  get_stage: (id: string) => Stage;
   // Adds a stage, or changes the one named by original_id, renaming its file when its id changed.
   save_stage: (stage: StageInput, original_id: string | null) => void;
   delete_stage: (id: string) => void;
@@ -93,7 +94,7 @@ export interface StagesMethods {
   add_default_stages: () => number;
 }
 
-export const stages_method_names = ["list_stages", "save_stage", "delete_stage", "move_stage", "add_default_stages"] as const satisfies readonly (keyof StagesMethods)[];
+export const stages_method_names = ["list_stages", "get_stage", "save_stage", "delete_stage", "move_stage", "add_default_stages"] as const satisfies readonly (keyof StagesMethods)[];
 
 // ── Rules ────────────────────────────────────────────────────────────────────
 

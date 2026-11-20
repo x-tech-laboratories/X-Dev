@@ -164,6 +164,11 @@ export function create_stage_files({ folder, on_change = () => undefined }: Stag
       const { stages, problems } = read_all();
       return { folder, stages, problems };
     },
+    get_stage: (id: string) => {
+      const found = read_all().stages.find((stage) => stage.id === id);
+      if (!found) throw new Error(`no stage ${id}`);
+      return found;
+    },
     save_stage: (input: StageInput, original_id: string | null) => {
       const { stages, files } = read_all();
       const existing = original_id === null ? undefined : stages.find((stage) => stage.id === original_id);

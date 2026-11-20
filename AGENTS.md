@@ -1,8 +1,8 @@
 # Instructions for AI agents
 
 X-Dev takes features and bug fixes through stages, one AI coding agent run per stage. It is a React page that runs in a
-browser against its own server, in Electron with its own database, and on Android in Capacitor with its own database,
-all syncing through the server. Read `README.md` first, then `docs/design.md` and `docs/architecture.md`. It follows the
+browser against its own server or a desktop daemon that lets other devices connect, in Electron with its own daemon or
+one on another computer, and on Android in Capacitor on a daemon elsewhere; daemons' data syncs through the server. Read `README.md` first, then `docs/design.md` and `docs/architecture.md`. It follows the
 [X-Tech Application Standard](https://x-tech-laboratories.github.io/standards/application/).
 
 ## Setup and checks
@@ -17,6 +17,9 @@ all syncing through the server. Read `README.md` first, then `docs/design.md` an
 - Every feature lives in `src/shared/<feature>/` (store, types, importers) and `src/web/<feature>/` (views, settings);
   `src/shared/store.ts`, `src/web/features.tsx` and `src/web/App.tsx` only list features.
 - Code in `src/shared/` runs on the server, in the desktop daemon and in the phone's page: no DOM, no `node:` imports.
+- A runner call is added to `RunnerMethods` and `runner_method_names` (`src/shared/runs/runner.ts`) and to `runner_api`
+  (`src/shared/runs/api.ts`); every host then serves it, the network only to an admin. A call or option that picks a
+  program or loosens permissions is refused from elsewhere in `src/server/remote_runner.ts`.
 - The desktop app's work goes in `src/daemon`; `src/main` keeps only what needs Electron: the window, the tray and the login entry.
 - A store call that only reads is named `list_`, `get_`, `search_`, `lookup_` or `export_`; any other name announces a change.
 - Every store call has a spec in `src/shared/<feature>/api.ts` saying what it does and its arguments, so the API and MCP

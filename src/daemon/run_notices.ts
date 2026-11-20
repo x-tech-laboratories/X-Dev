@@ -8,7 +8,7 @@ import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 
 import type { DesktopSettings } from "../shared/desktop.ts";
 import { read_pull_request } from "../shared/items/github.ts";
-import { report_summary, type Question, type RunState } from "../shared/runs/model.ts";
+import { runs_feature } from "../shared/runs/store.ts";
 import { checks_notices, run_notices, type NoticeKind, type PullRequestSnapshot, type RunNotice, type RunSnapshot, type SeenRun } from "../shared/runs/notices.ts";
 
 // ── Watching ─────────────────────────────────────────────────────────────────
@@ -30,24 +30,6 @@ export interface RunNoticeOptions {
   stage_label: (stage: string) => string;
 }
 
-interface RunRow {
-  id: string;
-  item_id: string;
-  item_title: string;
-  stage: string;
-  state: string;
-  proposals: number;
-  report: string;
-  error: string;
-  questions: string;
-  awaiting: string;
-}
-
-function snapshot_of(row: RunRow): RunSnapshot {
-  const questions = JSON.parse(row.questions) as Question[];
-  return { ...row, state: row.state as RunState, summary: report_summary(row.report), question: questions[0]?.question ?? "" };
-}
-
 // Watches the runs from now on, the ones already running included; check() after each change shows what is due.
 export function watch_run_notices({ database, notifier, settings, stage_label }: RunNoticeOptions): { check: () => void } {
   let seen = new Map<string, SeenRun>();
@@ -55,11 +37,7 @@ export function watch_run_notices({ database, notifier, settings, stage_label }:
 
   // The runs under way, and those that were under way last time, as they are now.
   function read(): RunSnapshot[] {
-    const ids = [...seen.keys()];
-    const rows = database()
-      .prepare(`SELECT runs.id, runs.item_id, items.title AS item_title, runs.stage, runs.state, runs.proposals, runs.report, runs.error, runs.questions, runs.awaiting FROM runs JOIN items ON items.id = runs.item_id WHERE runs.state = 'running'${ids.length ? ` OR runs.id IN (${ids.map(() => "?").join(", ")})` : ""}`)
-      .all(...ids) as unknown as RunRow[];
-    return rows.map(snapshot_of);
+    return runs_feature.methods.list_watched_runs(database(), [...seen.keys()]);
   }
 
   // The open items' pull requests.

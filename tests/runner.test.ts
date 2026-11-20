@@ -10,9 +10,10 @@ import { create_github_sync, type GitHubSync } from "../src/server/github_sync.t
 import { create_run_tools, type RunTools } from "../src/server/run_tools.ts";
 import { checkout_names, checkout_of_reply, create_runner, draft_of_reply, find_checkout, match_repository, search_roots, type Runner } from "../src/server/runner.ts";
 import { create_stage_files } from "../src/server/stage_files.ts";
-import { live_run_api } from "../src/shared/runs/live_api.ts";
+import { runner_api } from "../src/shared/runs/api.ts";
 import { runner_method_names } from "../src/shared/runs/runner.ts";
 import { read_transcript } from "../src/shared/runs/transcript.ts";
+import { insert_run, update_run } from "../src/shared/runs/store.ts";
 import { bind_methods, open_store } from "../src/shared/store.ts";
 
 const fake_claude = join(import.meta.dirname, "fixtures", "fake_claude.mjs");
@@ -52,7 +53,7 @@ async function setup(github?: (database: DatabaseSync) => GitHubSync) {
   runner.methods.set_runner_setting("claude_program", fake_claude);
   runner.methods.set_repository(repository, checkout);
   const item = (body: string) => store.save_item({ title: "Board with swimlanes", repository, body, stage: "plan", issue_number: 7 });
-  return { store, runner, checkout, item };
+  return { store, runner, checkout, item, database };
 }
 
 describe("the runner", () => {
@@ -204,6 +205,28 @@ describe("the runner", () => {
 
     expect(store.get_run(run_id)).toMatchObject({ state: "failed", error: "X-Dev stopped while the run was under way." });
   });
+
+  it("serves a run's own tools on the loopback address only", async () => {
+    await setup();
+
+    expect(run_tools!.url()).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+  });
+
+  it("leaves runs another computer started to that computer", async () => {
+    const { store, runner, item, database } = await setup();
+    const id = item("Plan it.");
+    const started = { item_id: id, stage: "plan", model: "", effort: "", session_id: "elsewhere", start_commit: "", status_before: "{}", input: "", started_at: "2026-11-20T10:00:00Z" };
+    const running = insert_run(database, started);
+    const waiting = insert_run(database, { ...started, started_at: "2026-11-20T11:00:00Z" });
+    update_run(database, waiting, { state: "waiting" });
+
+    runner.recover();
+
+    expect(store.get_run(running).state).toBe("running");
+    expect(() => runner.methods.answer_run(waiting, "Lanes.")).toThrow("started on another computer");
+    await expect(runner.methods.discard_run(waiting)).rejects.toThrow("started on another computer");
+    expect(store.get_run(waiting).state).toBe("waiting");
+  });
 });
 
 // Waits until the run's saved transcript shows the check passing.
@@ -266,7 +289,8 @@ describe("a live run", () => {
   });
 
   it("describes each call on a live run for other programs", () => {
-    for (const [name, spec] of Object.entries(live_run_api)) {
+    for (const name of ["interject_run", "interrupt_run", "retry_run"] as const) {
+      const spec = runner_api[name];
       expect(runner_method_names).toContain(name);
       expect(spec.description.length).toBeGreaterThan(40);
       expect(spec.params[0]!.name).toBe("run_id");

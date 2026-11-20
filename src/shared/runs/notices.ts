@@ -119,3 +119,51 @@ export function checks_notices(running: Set<string>, items: PullRequestSnapshot[
   }
   return { notices, running: next };
 }
+
+// ── Watching from elsewhere ──────────────────────────────────────────────────
+
+export interface NoticeWatchOptions {
+  // The runs under way and the ones named, such as through list_watched_runs on a daemon in another place.
+  read_runs: (run_ids: string[]) => Promise<RunSnapshot[]>;
+  read_pull_requests: () => Promise<PullRequestSnapshot[]>;
+  stage_label: (stage: string) => string;
+  // Whether this device shows a kind of notice.
+  is_on: (kind: NoticeKind) => boolean | Promise<boolean>;
+  show: (notice: RunNotice) => void;
+}
+
+// Watches a daemon elsewhere through its calls; the first check only learns what is under way, and checks run in turn.
+export function watch_notices(options: NoticeWatchOptions): { check: () => Promise<void> } {
+  // Each run under way or waiting as last seen, since changes far apart may pass over its running.
+  let known: Map<string, { state: RunState; proposals: number }> | null = null;
+  let checks_running = new Set<string>();
+  let running = Promise.resolve();
+
+  async function look(): Promise<void> {
+    const watched = [...(known ?? new Map())].filter(([, run]) => run.state === "running" || run.state === "waiting").map(([id]) => id);
+    const runs = await options.read_runs(watched);
+    // A run whose state moved since last seen counts as having run in between.
+    const seen = new Map<string, SeenRun>();
+    for (const run of runs) {
+      const before = known?.get(run.id);
+      if (before && (before.state !== run.state || before.state === "running")) seen.set(run.id, { state: "running", proposals_before: before.proposals });
+    }
+    const notices = run_notices(seen, runs, options.stage_label).notices;
+    const checks = checks_notices(checks_running, await options.read_pull_requests());
+    const is_first = known === null;
+    const before = known;
+    known = new Map(runs.map((run) => [run.id, { state: run.state, proposals: before?.get(run.id)?.state === "running" && run.state === "running" ? before.get(run.id)!.proposals : run.proposals }]));
+    checks_running = checks.running;
+    if (is_first) return;
+    for (const notice of [...notices, ...checks.notices]) if (await options.is_on(notice.kind)) options.show(notice);
+  }
+
+  return {
+    check: () => (running = running.then(look, look)),
+  };
+}
+
+// The open items' pull requests, from the items as list_items gives them, read with read_pull_request.
+export function pull_request_snapshots(items: { id: string; title: string; pull_request: string; closed_at: string | null }[], read: (json: string) => PullRequest | null): PullRequestSnapshot[] {
+  return items.filter((item) => item.closed_at === null && item.pull_request !== "").map((item) => ({ item_id: item.id, item_title: item.title, pull_request: read(item.pull_request) }));
+}
