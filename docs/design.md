@@ -125,6 +125,19 @@ tools, next stage and prompt, the prompt in `RichText`. Saving writes the file b
 frontmatter. The daemon watches the folder with `config_watch`, so a file edited in a text editor
 shows at once. Stage files are the user's config, not synced data; the settings export carries them.
 
+### Models
+
+Each stage runs on its own model, set by the file's `model` key and an `x-dev-effort` key for the
+reasoning effort. The Stages section shows them as a table of stage, model and effort, so the whole
+pipeline's choice reads at a glance, for example Fable for Triage, Plan and Review and Opus for the
+rest. A model is picked from the models the agent backend offers, by alias or exact id.
+
+- An item can override a stage's model for its next run, such as a hard bug planned on a stronger
+  model; the run records the model it used.
+- Review warns when its model is the one Implement's last run used, since the
+  [review guideline](https://x-tech-laboratories.github.io/guidelines/review/) asks for a second model.
+- The Runs page sums tokens and cost by stage and model, so a costly choice shows.
+
 ## The agent backend
 
 Agent backends are provider plugins (`agent_backend`). The bundled one runs Claude Code:
@@ -222,3 +235,5 @@ Missing from X-Libs, to be built there rather than in X-Dev:
 - The exact `claude` flags for running one agent headless with its tools and permission mode, and how
   `stream-json` marks the final message.
 - That Claude Code ignores the `x-dev-*` frontmatter keys.
+- Which values an agent file's `model` takes (aliases such as `fable` and `opus`, exact ids), and how a
+  run overrides it and sets the effort from the command line.
