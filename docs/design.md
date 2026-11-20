@@ -135,7 +135,9 @@ which goes into the report and the issue.
 
 The same checks are a command, `x-dev-check [gate...]`, so a repository's CI can run them on every
 pull request and nothing that skipped X-Dev gets past them. Checks read only the code around strings
-and regular expressions, so a check's own patterns or test data do not trip it.
+and regular expressions, so a check's own patterns or test data do not trip it. `commits`, `secrets`,
+`leftovers`, `comments`, `coverage`, `x-libs` and `dependencies` are X-Libs' change checks, which any
+X-app's CI runs with `x-libs-check`; the other gates are X-Dev's own.
 
 | Gate | Checks | After |
 | ---- | ------ | ----- |
@@ -148,13 +150,13 @@ and regular expressions, so a check's own patterns or test data do not trip it.
 | `tests-pass` | The tests for the changed files pass | Implement, Extract |
 | `types-lint` | `tsc -b` and `oxlint` are clean | Implement, Extract, Docs |
 | `coverage` | The coverage floor in `vitest.config.ts` was not lowered, nothing new is excluded, and a raised floor is committed | Implement, Extract |
-| `commits` | Conventional Commits; `Assisted-by: Claude Code` in `x-tech-laboratories` repositories and no AI mention anywhere else | every stage that commits |
-| `secrets` | No keys, tokens, private keys or `.env` values in the diff, and no personal names or emails | every stage that edits, and every report |
+| `commits` | Conventional Commits; an `Assisted-by` trailer in `x-tech-laboratories` repositories and nowhere else, and no AI mention outside it | every stage that commits |
+| `secrets` | No keys, tokens, private keys or `.env` values in the diff, the commit messages or the report | every stage that edits, and every report |
 | `leftovers` | No debug output, commented-out code, unused exports or TODOs without an issue in the diff | Implement, Extract |
 | `comments` | Each comment in the diff is one plain line in the present tense | Implement, Extract, Docs |
 | `size` | Functions and files over a set length are named for Review (a warning, not a failure) | Implement, Extract |
-| `x-libs` | No direct import of a library X-Libs wraps, such as `drizzle-orm` or `@tanstack/react-table`, and no new copy of an X-Libs widget | Implement, Extract |
-| `dependencies` | A new dependency is named for Review, with its licence, which must suit GPL-3.0-or-later | Implement, Extract |
+| `x-libs` | No direct import of a library X-Libs wraps, such as `drizzle-orm` or `@tanstack/react-table`, outside X-Libs itself | Implement, Extract |
+| `dependencies` | A new dependency is named for Review, with its licence, which must be one of the licences GPL-3.0-or-later can take in | Implement, Extract |
 | `ci` | The pull request's checks pass; checks still running hold the item until they finish | Review |
 
 Review also works from a checklist built from the [Application Standard](https://x-tech-laboratories.github.io/standards/application/),
@@ -321,6 +323,7 @@ reports sync; worktrees and stage files stay on the machine that runs the agents
 | Runs table, cost charts | `DataTable`, `web/react/charts` |
 | Pages and widgets | `Shell`, layout, dialogs, `PageView`, `SettingsPage`, toasts, menus, `Icon` |
 | Plugins | `plugins`, `web/react/plugins` |
+| Change checks and `x-dev-check` | `change_checks`, `change_checks_git` (`read_change`), `change_checks_cli` (`run_check_command`) |
 
 Missing from X-Libs, to be built there rather than in X-Dev:
 
@@ -331,8 +334,6 @@ Missing from X-Libs, to be built there rather than in X-Dev:
   `src/web/diff/` and `src/shared/diff/`, on parse-diff, with nothing of X-Dev in its props, ready to move.
 - A GitHub client on Octokit: issues, labels, comments, pull requests and checks, for any app.
 - Git worktrees: make, list, reset and remove one, through `run_program`.
-- Change checks: the gates that are not X-Dev's own (`commits`, `secrets`, `leftovers`, `comments`,
-  `coverage`, `x-libs`, `dependencies`), so every X-app's CI can run them without X-Dev.
 - Markdown files with frontmatter: read and write them, keeping keys the app does not know.
 
 ## Milestones

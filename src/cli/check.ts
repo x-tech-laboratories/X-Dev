@@ -1,55 +1,42 @@
 #!/usr/bin/env node
-// x-dev-check: runs X-Dev's gates on a checkout's changes since a base, so a repository's CI holds every change to the
-// same checks a stage's run meets, whether X-Dev made it or not.
+// x-dev-check: runs the X-Libs change checks and X-Dev's own gates on a checkout's changes since a base, so a
+// repository's CI holds every change to the same checks a stage's run meets, whether X-Dev made it or not.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { parseArgs } from "node:util";
 
 import { run_program } from "@x-tech-laboratories/x-libs/agent/programs";
+import { run_check_command, type CheckCommandContext } from "@x-tech-laboratories/x-libs/change_checks_cli";
 
-import { run_gates } from "../server/gates.ts";
-import { repository_of_remote } from "../shared/items/model.ts";
-import { gate_names } from "../shared/stages/model.ts";
+import { gate_registry } from "../server/gates.ts";
 
 // ── Options ──────────────────────────────────────────────────────────────────
 
 // The gates that need nothing but the change itself, run when none are named.
 export const default_gates = ["commits", "secrets", "leftovers", "comments", "coverage", "x-libs", "dependencies", "size"];
 
-const usage = `Usage: x-dev-check [--base <ref>] [--repository <owner/name>] [gate...]
+const known_options = { base: { type: "string" }, repository: { type: "string" }, "working-tree": { type: "boolean" }, help: { type: "boolean", short: "h" } } as const;
 
-Runs X-Dev's gates on the changes since the base (the branch point from origin/main unless given) and fails when any
-gate fails. With no gates named it runs: ${default_gates.join(", ")}.
-Gates: ${gate_names.join(", ")}.`;
-
-async function git(args: string[]): Promise<string> {
-  const result = await run_program(["git", ...args], { stdout: "keep", stderr: "keep" });
-  if (result.exit_code !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`);
-  return result.stdout.trim();
+// The arguments with the base made explicit, so X-Dev's gates and the change read agree on it, and the default gates added when none are named.
+export async function complete_arguments(args: string[], cwd: string): Promise<{ args: string[]; base: string }> {
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, strict: false, options: known_options });
+  const completed = values.help || positionals.length ? [...args] : [...args, ...default_gates];
+  if (typeof values.base === "string") return { args: completed, base: values.base };
+  const merge_base = await run_program(["git", "merge-base", "origin/main", "HEAD"], { cwd, stdout: "keep", stderr: "keep" });
+  const base = merge_base.exit_code === 0 ? merge_base.stdout.trim() : "";
+  return { args: base ? ["--base", base, ...completed] : completed, base };
 }
 
 // ── Run ──────────────────────────────────────────────────────────────────────
 
-const marks = { passed: "✓", failed: "✗", warning: "!", skipped: "-" } as const;
-
-async function main(): Promise<number> {
-  const { values, positionals } = parseArgs({ allowPositionals: true, options: { base: { type: "string" }, repository: { type: "string" }, help: { type: "boolean", short: "h" } } });
-  if (values.help) {
-    process.stdout.write(`${usage}\n`);
-    return 0;
-  }
-  const unknown = positionals.filter((gate) => !gate_names.includes(gate));
-  if (unknown.length) {
-    process.stderr.write(`x-dev-check: no gate called ${unknown.join(", ")}\n\n${usage}\n`);
-    return 2;
-  }
-  const base = values.base ?? (await git(["merge-base", "origin/main", "HEAD"]));
-  const repository = values.repository ?? repository_of_remote(await git(["remote", "get-url", "origin"]).catch(() => ""));
-  const results = await run_gates(positionals.length ? positionals : default_gates, { worktree: process.cwd(), base, repository, paths: [], specified_tests: [] });
-  const lines = results.flatMap((result) => [`${marks[result.outcome]} ${result.gate}: ${result.outcome}`, ...result.findings.map((finding) => `    ${finding}`)]);
-  process.stdout.write(`${lines.join("\n")}\n`);
-  return results.some((result) => result.outcome === "failed") ? 1 : 0;
+// Runs x-dev-check with its arguments and answers the exit code: 0 when nothing failed, 1 when a gate failed, 2 when misused.
+export async function run_x_dev_check(args: string[], context: Omit<CheckCommandContext, "registry">): Promise<number> {
+  const completed = await complete_arguments(args, context.cwd);
+  const registry = gate_registry({ worktree: context.cwd, base: completed.base, repository: "", paths: [], specified_tests: [] });
+  return run_check_command(completed.args, { ...context, registry });
 }
 
-if (import.meta.main) process.exit(await main());
+if (import.meta.main) {
+  process.exit(await run_x_dev_check(process.argv.slice(2), { cwd: process.cwd(), env: process.env, out: process.stdout, err: process.stderr }));
+}
