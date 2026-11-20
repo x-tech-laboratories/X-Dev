@@ -11,8 +11,13 @@ keep their own copy of the data, work offline, and sync with the server whenever
 
 What it does so far:
 
-- **Board:** the page X-Dev opens on, a kanban board on X-Libs' `Board` with a column for each stage and a card for each open item in the
-  column of the stage it is at. The card shows the latest run of that stage: its state, the first line of its report
+- **Items page:** the page X-Dev opens on, showing the items as a board or as a list, switched by **Board | List** in its
+  toolbar; the choice is kept on each device, and `#/items/board` and `#/items/list` name a view. Both views share
+  the toolbar (Add Item, search, the repository filter, Show finished items, Group by repository) and the inbox of
+  proposals above them, and the filters stay when switching. The list is a table of each item's title, kind,
+  repository, issue and stage, with edit, history, close or reopen and delete on each row, grouped under a heading
+  per repository when asked. The board is a kanban board on X-Libs' `Board` with a column for each stage and a card
+  for each open item in the column of the stage it is at. The card shows the latest run of that stage: its state, the first line of its report
   or what failed, its model, the lines it changed, its cost, its age and its gates, a waiting run's question with its
   choices, the item's pull request and checks, and, once it has runs, a dot for each stage the item went through. Clicking a card or pressing Enter on it opens the
   item. Run starts the stage, on
@@ -20,7 +25,8 @@ What it does so far:
   discards its last run. Dragging a card to an earlier column, or Alt and Left on it, sends the item back there after a
   confirm. The board fills the window under its toolbar and the inbox of proposals, scrolling inside itself with the
   column heads in view; cards filter by repository and words, group into a lane per repository, and finished items
-  show in a Done column when asked. On a phone the columns stack into a list of stages.
+  show in a Done column when asked. Closed items stay off the board; Show finished items lists them in the list view.
+  On a phone the columns stack into a list of stages.
 - **Items:** each feature or bug fix in one GitHub repository, with its issue, the stage it is at, and a status sheet
   that every stage reads and keeps current. Items are added, edited, closed and reopened on the Items page.
 - **Stages:** the steps every item goes through, from Triage to Close, each a Claude Code agent file with its own
@@ -185,7 +191,7 @@ belongs to that device or server and is never synced.
 ## History
 
 Every change to an item, its stage and status sheet included, is kept as a version, whichever device, page, API call or
-MCP tool made it. **History** in the sidebar lists the latest changes, and **History** beside an item lists its versions:
+MCP tool made it. **History**, the last row of the sidebar's list, lists the latest changes, and **History** beside an item lists its versions:
 any version can be restored, and a deleted item brought back. Versions sync, so every device sees the same history.
 Changes older than **Settings → General → History** (180 days unless set) are pruned, each item keeping its latest.
 

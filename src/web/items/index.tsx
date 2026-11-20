@@ -1,21 +1,25 @@
-// The items: every feature or bug fix X-Dev tracks, with its repository, issue and the stage it is at; the inbox of
-// proposals runs made; and a new item, described in free text for an agent to fill in or filled in by hand.
+// The items page: every feature or bug fix X-Dev tracks, as a board of stages or as a list, under one toolbar and the
+// inbox of proposals runs made; and a new item, described in free text for an agent to fill in or filled in by hand.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { useState } from "react";
-import { PathInput, SearchBox, Select, Switch } from "@x-tech-laboratories/x-libs/web/react/controls";
+import { PathInput, SearchBox, Segmented, Select, Switch } from "@x-tech-laboratories/x-libs/web/react/controls";
 import { Dialog } from "@x-tech-laboratories/x-libs/web/react/dialog";
 import { FormRow, PageHeading, Section, Tabs, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout";
+import { is_boolean, one_of } from "@x-tech-laboratories/x-libs/web/prefs";
+import { use_pref } from "@x-tech-laboratories/x-libs/web/react/prefs";
 import { Empty, Loaded, use_resource } from "@x-tech-laboratories/x-libs/web/react/states";
 import { ComboField } from "@x-tech-laboratories/x-libs/web/react/suggestions";
-import { DataTable, type TableColumn } from "@x-tech-laboratories/x-libs/web/react/table";
+import { DataTable, type RowGroup, type TableColumn } from "@x-tech-laboratories/x-libs/web/react/table";
 import { format_count } from "@x-tech-laboratories/x-libs/web/format";
 import { toast } from "@x-tech-laboratories/x-libs/web/react/toasts";
 
-import { is_repository, issue_link, item_kinds, type Item, type ItemInput, type ItemKind } from "../../shared/items/model.ts";
+import { is_repository, issue_link, item_kinds, proposed, type Item, type ItemInput, type ItemKind } from "../../shared/items/model.ts";
 import type { ItemDraft } from "../../shared/runs/runner.ts";
+import { done, type Stage } from "../../shared/stages/model.ts";
 import { attempt, calls, data_watch, page, succeeds, use_data } from "../api.ts";
+import { ItemsBoard } from "../board/index.tsx";
 import { DialogButtons } from "../forms.tsx";
 import { confirm_delete, row_actions_column } from "../rows.tsx";
 import { ItemView, stage_label } from "./ItemView.tsx";
@@ -191,14 +195,16 @@ export function Inbox() {
 
 // ── List ─────────────────────────────────────────────────────────────────────
 
-function ItemsList() {
-  const { stages: stages_client } = page();
-  const [include_closed, set_include_closed] = useState(false);
-  const [search, set_search] = useState("");
-  const [editing, set_editing] = useState<Item | "new" | null>(null);
-  const items = use_data((api) => api.list_items(include_closed), [include_closed]);
-  const stages = use_resource(async () => (stages_client ? (await stages_client.list_stages()).stages : []), [stages_client], { watch: data_watch });
+interface ItemsListProps {
+  items: Item[];
+  has_items: boolean;
+  stages: Stage[];
+  by_repository: boolean;
+  on_edit: (item: Item) => void;
+}
 
+// The list view of the items page: a table of the items, under a heading per repository when grouped.
+function ItemsList({ items, has_items, stages, by_repository, on_edit }: ItemsListProps) {
   function remove(item: Item): void {
     confirm_delete(`Delete ${item.title}?`, "It can be brought back from its history.", () => succeeds(() => calls().delete_item(item.id)));
   }
@@ -220,10 +226,10 @@ function ItemsList() {
         );
       },
     },
-    { label: "Stage", cell: (item) => (item.closed_at ? "Closed" : stage_label(stages.data ?? [], item.stage)), sort: (item) => item.stage },
+    { label: "Stage", cell: (item) => (item.closed_at ? "Closed" : stage_label(stages, item.stage)), sort: (item) => item.stage },
     row_actions_column<Item>({
       name: (item) => item.title,
-      edit: set_editing,
+      edit: on_edit,
       history: (item) => ({ kind: "item", item_id: item.id }),
       trailing: (item) => (
         <button type="button" aria-label={`${item.closed_at ? "Reopen" : "Close"} ${item.title}`} onClick={() => void succeeds(() => (item.closed_at ? calls().reopen_item(item.id) : calls().close_item(item.id)))}>
@@ -234,6 +240,61 @@ function ItemsList() {
     }),
   ];
 
+  if (items.length === 0) return <Empty title="No items." hint={has_items ? "Nothing matches the filters." : "Add a feature or bug fix to take it through the stages."} />;
+  const groups: RowGroup<Item>[] | undefined = by_repository
+    ? [...new Set(items.map((item) => item.repository))].sort().map((name) => {
+        const rows = items.filter((item) => item.repository === name);
+        return { key: name, label: <>{name} <span className="group-count">{format_count(rows.length)}</span></>, rows };
+      })
+    : undefined;
+  return <DataTable columns={columns} rows={items} groups={groups} row_key={(item) => item.id} />;
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+
+const items_layouts = ["board", "list"] as const;
+
+export type ItemsLayout = (typeof items_layouts)[number];
+
+const layout_choices: { value: ItemsLayout; label: string }[] = [
+  { value: "board", label: "Board" },
+  { value: "list", label: "List" },
+];
+
+export function is_items_layout(text: string | undefined): text is ItemsLayout {
+  return items_layouts.some((layout) => layout === text);
+}
+
+const all_repositories = "";
+
+// One toolbar, inbox and set of filters over either the board or the list, the choice of which is kept on this device.
+function ItemsPage({ named_layout }: { named_layout: ItemsLayout | undefined }) {
+  const { stages: stages_client } = page();
+  const [saved_layout, set_saved_layout] = use_pref<ItemsLayout>("x-dev-items-layout", "board", one_of(...items_layouts));
+  const [search, set_search] = useState("");
+  const [repository, set_repository] = useState(all_repositories);
+  const [show_finished, set_show_finished] = useState(false);
+  const [by_repository, set_by_repository] = use_pref("x-dev-board-by-repository", false, is_boolean);
+  const [editing, set_editing] = useState<Item | "new" | null>(null);
+  const items = use_data((api) => api.list_items(show_finished), [show_finished]);
+  const stages = use_resource(async () => (stages_client ? (await stages_client.list_stages()).stages : []), [stages_client], { watch: data_watch });
+
+  const layout = named_layout ?? saved_layout;
+  const kept = (items.data ?? []).filter((item) => item.stage !== proposed);
+  const needle = search.trim().toLowerCase();
+  const shown = kept.filter(
+    (item) =>
+      (show_finished || item.stage !== done) &&
+      (repository === all_repositories || item.repository === repository) &&
+      (!needle || `${item.title} ${item.repository}`.toLowerCase().includes(needle)),
+  );
+  const repositories = [...new Set((items.data ?? []).map((item) => item.repository))].sort();
+
+  function pick_layout(next: ItemsLayout): void {
+    set_saved_layout(next);
+    window.location.hash = `/items/${next}`;
+  }
+
   return (
     <>
       <PageHeading title="Items" />
@@ -242,27 +303,36 @@ function ItemsList() {
           Add Item
         </button>
         <SearchBox label="Search items" value={search} on_input={set_search} />
-        <Switch label="Show closed items" show_label checked={include_closed} on_change={set_include_closed} />
+        <Select<string> label="Repository" bare options={[[all_repositories, "Every repository"], ...repositories.map((name): [string, string] => [name, name])]} value={repository} on_change={set_repository} />
+        <Switch label="Show finished items" show_label checked={show_finished} on_change={set_show_finished} />
+        <Switch label="Group by repository" show_label checked={by_repository} on_change={set_by_repository} />
+        <Segmented<ItemsLayout> label="Layout" choices={layout_choices} value={layout} on_change={pick_layout} />
       </Toolbar>
       <Inbox />
-      <Loaded resource={items}>
-        {(list) => {
-          const needle = search.trim().toLowerCase();
-          const visible = list.filter((item) => item.stage !== "proposed" && (!needle || `${item.title} ${item.repository}`.toLowerCase().includes(needle)));
-          return visible.length === 0 ? (
-            <Empty title="No items." hint={list.length === 0 ? "Add a feature or bug fix to take it through the stages." : "Nothing matches the search."} />
-          ) : (
-            <DataTable columns={columns} rows={visible} row_key={(item) => item.id} />
-          );
-        }}
-      </Loaded>
+      {layout === "board" ? (
+        <ItemsBoard
+          items={shown}
+          has_items={kept.length > 0}
+          stages={stages.data ?? []}
+          show_done={show_finished}
+          by_repository={by_repository}
+          loading={stages.loading || items.loading}
+          error={stages.error ?? items.error ?? undefined}
+          on_retry={() => void Promise.all([stages.reload(), items.reload()])}
+        />
+      ) : (
+        <Loaded resource={items}>
+          {() => <ItemsList items={shown} has_items={kept.length > 0} stages={stages.data ?? []} by_repository={by_repository} on_edit={set_editing} />}
+        </Loaded>
+      )}
       {editing && <ItemDialog key={editing === "new" ? "new" : editing.id} initial={editing === "new" ? null : editing} on_close={() => set_editing(null)} />}
     </>
   );
 }
 
-// #/items lists them, #/items/<id> opens one.
+// #/items shows the board or the list as last picked, #/items/board and #/items/list name one, #/items/<id> opens an item.
 export function ItemsView({ parts }: { parts: string[] }) {
-  const id = parts[0];
-  return id && id !== "list" ? <ItemView key={id} id={decodeURIComponent(id)} run_id={parts[1]} /> : <ItemsList />;
+  const [id, run_id] = parts;
+  if (!id || is_items_layout(id)) return <ItemsPage named_layout={is_items_layout(id) ? id : undefined} />;
+  return <ItemView key={id} id={decodeURIComponent(id)} run_id={run_id} />;
 }

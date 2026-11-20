@@ -58,14 +58,18 @@ function SignedInApp() {
 
 function Pages({ me, on_sign_out }: { me: Me | null; on_sign_out?: () => void }) {
   const route = use_route();
-  const [named_section = "board", ...rest] = route.parts;
-  const feature = page_features.find((candidate) => candidate.id === named_section);
+  // The board was a page of its own, so its old address opens the items page's board.
+  const parts = route.parts[0] === "board" ? ["items", "board"] : route.parts;
+  const [named_section = "items", ...named_rest] = parts;
+  const known = page_features.some((candidate) => candidate.id === named_section);
   const is_own = named_section === "settings" || named_section === "history" || (me !== null && own_sections.includes(named_section));
-  const section = feature || is_own ? named_section : "board";
+  const section = known || is_own ? named_section : "items";
+  const rest = known || is_own ? named_rest : [];
+  const feature = page_features.find((candidate) => candidate.id === section);
   const page = feature?.pages.find((candidate) => candidate.id === rest[0]) ?? feature?.pages[0];
   const own_labels: Record<string, string> = { settings: "Settings", history: "History", account: "Your account", users: "Users" };
-  const label = feature ? (feature.pages.length < 2 ? feature.label : `${page!.label} · ${feature.label}`) : own_labels[section] ?? "Board";
-  const view_key = route.parts.join("/");
+  const label = feature ? (feature.pages.length < 2 ? feature.label : `${page!.label} · ${feature.label}`) : own_labels[section];
+  const view_key = [section, ...(feature?.view_key ? [feature.view_key(rest)] : rest)].join("/");
   const is_admin = me !== null && me.role === me.roles.at(-1);
 
   useEffect(() => {
@@ -92,7 +96,7 @@ function Pages({ me, on_sign_out }: { me: Me | null; on_sign_out?: () => void })
       user_href="#/account"
       on_logout={on_sign_out}
       settings={{ href: "#/settings", active: section === "settings" }}
-      contained={feature?.contained ?? false}
+      contained={feature?.contained?.(rest) ?? false}
     >
       <Fragment key={view_key}>{view()}</Fragment>
     </Shell>
