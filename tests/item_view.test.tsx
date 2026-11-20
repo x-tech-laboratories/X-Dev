@@ -18,7 +18,7 @@ import { insert_run, propose, update_run } from "../src/shared/runs/store.ts";
 import type { StagesMethods } from "../src/shared/stages/model.ts";
 import { parse_unified_diff } from "../src/shared/diff/parse.ts";
 import { bind_methods, open_store, type DevMethods } from "../src/shared/store.ts";
-import { set_page_api } from "../src/web/api.ts";
+import { page, set_page_api } from "../src/web/api.ts";
 import { App } from "../src/web/App.tsx";
 
 function as_client(methods: object): unknown {
@@ -62,6 +62,7 @@ function fake_page(with_runner = true) {
   const runner = { ...recorded, ...create_item_calls({ database: () => database, after_write: () => undefined, runner: recorded }) } satisfies RunnerMethods;
   set_page_api({
     host: "desktop",
+    daemon_is_here: with_runner,
     calls: as_client(store) as unknown as Client<DevMethods>,
     device: null,
     stages: as_client(stages) as unknown as Client<StagesMethods>,
@@ -432,6 +433,7 @@ describe("a run's permissions", () => {
 
     const request = await screen.findByRole("group", { name: "Bash waits for approval" });
     expect(within(request).getByText("It installs a package.")).toBeTruthy();
+    expect(within(request).getAllByText("npm install left-pad")).toHaveLength(1);
     expect(screen.getByText("Waiting for approval: Bash")).toBeTruthy();
     expect(screen.getByText("Reason given: Not there.")).toBeTruthy();
     fireEvent.click(within(request).getByRole("button", { name: "Allow" }));
@@ -462,6 +464,25 @@ describe("a run's permissions", () => {
     fireEvent.change(await screen.findByRole("combobox", { name: "Permission mode for this run" }), { target: { value: "acceptEdits" } });
     fireEvent.click(screen.getByRole("button", { name: "Run Plan" }));
     await waitFor(() => expect(runner.start_run).toHaveBeenCalledWith(id, { stage: "plan", mode: "acceptEdits" }));
+  });
+});
+
+describe("a run's permissions from another device", () => {
+  it("offers only Manual and allows a tool call once, never for the whole run", async () => {
+    const { database, store, runner } = fake_page();
+    set_page_api({ ...page(), daemon_is_here: false });
+    const id = store.save_item(item);
+    add_run(database, id, { state: "running", transcript: JSON.stringify({ model: "", mode: "auto", activity: "working", dropped: 0, entries: [{ kind: "permission", id: "p1", tool: "Bash", input: { command: "ls" }, reason: "" }] }) });
+    render(<App />);
+    go(`#/items/${id}`);
+
+    const request = await screen.findByRole("group", { name: "Bash waits for approval" });
+    expect(within(request).queryByRole("button", { name: /for This Run/ })).toBeNull();
+    const mode = screen.getByRole("combobox", { name: "Permission mode" }) as HTMLSelectElement;
+    expect([...mode.options].map((option) => option.textContent)).toEqual(["Auto", "Manual"]);
+    const pick = screen.getByRole("combobox", { name: "Permission mode for this run" }) as HTMLSelectElement;
+    expect([...pick.options].map((option) => option.textContent)).toEqual(["As the runner's setting says", "Manual"]);
+    expect(runner.set_run_mode).not.toHaveBeenCalled();
   });
 });
 

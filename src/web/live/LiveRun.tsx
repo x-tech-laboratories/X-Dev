@@ -14,7 +14,8 @@ import { FormGroup, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout
 
 import { can_retry } from "../../shared/runs/attempts.ts";
 import type { Run } from "../../shared/runs/model.ts";
-import { mode_of_session, run_mode_labels, run_modes, type RunMode } from "../../shared/runs/modes.ts";
+import { mode_of_session, run_mode_labels, type RunMode } from "../../shared/runs/modes.ts";
+import { offered_modes } from "./ModePicker.tsx";
 import { read_transcript } from "../../shared/runs/transcript.ts";
 import { data_watch, page, succeeds } from "../api.ts";
 import { run_state_labels } from "../items/words.ts";
@@ -91,8 +92,9 @@ function MessageBox({ run_id, paused }: { run_id: string; paused: boolean }) {
 // The run's permission mode, switched while its session is open.
 function ModeSwitch({ run_id, mode }: { run_id: string; mode: RunMode | "" }) {
   const { runner } = page();
-  const options: [RunMode | "", string][] = [...(mode ? [] : [["", "Another mode"] as [RunMode | "", string]]), ...run_modes.map((each): [RunMode, string] => [each, run_mode_labels[each]])];
-  return <Select<RunMode | ""> label="Permission mode" options={options} value={mode} on_change={(next) => void (next && succeeds(() => runner!.set_run_mode(run_id, next)))} />;
+  const offered = offered_modes(mode);
+  const options: [RunMode | "", string][] = [...(mode ? [] : [["", "Another mode"] as [RunMode | "", string]]), ...offered.map((each): [RunMode, string] => [each, run_mode_labels[each]])];
+  return <Select<RunMode | ""> label="Permission mode" bare options={options} value={mode} on_change={(next) => void (next && succeeds(() => runner!.set_run_mode(run_id, next)))} />;
 }
 
 // ── View ─────────────────────────────────────────────────────────────────────
@@ -155,7 +157,13 @@ export function LiveRun({ run, stage_label, is_latest, standalone = true }: Live
         )
       )}
       {run.transcript ? (
-        <TranscriptView entries={transcript.entries} dropped={transcript.dropped} live={running} empty_text="The agent has not started yet." user_labels={{ input: `What ${stage_label} was given` }}
+        <TranscriptView
+          entries={transcript.entries}
+          dropped={transcript.dropped}
+          live={running}
+          empty_text="The agent has not started yet."
+          user_labels={{ input: `What ${stage_label} was given` }}
+          allow_for_run={page().daemon_is_here === true}
           on_permission={runner && session_open ? (request_id, decision, message) => void succeeds(() => runner.answer_permission(run.id, request_id, decision, message)) : undefined}
         />
       ) : (
