@@ -21,22 +21,29 @@ import { page_features } from "../features.tsx";
 import { GitHubSettings, RunSettings } from "../stages/RunnerSettings.tsx";
 import { RemoteAccessSettings } from "./RemoteAccessSettings.tsx";
 import { StagesSettings } from "../stages/StagesSettings.tsx";
+import { WebhookSettings } from "../webhooks/WebhookSettings.tsx";
 
 // ── Stages ───────────────────────────────────────────────────────────────────
 
 // The stages wherever the page reaches their files, and the runner wherever the daemon runs the agents.
 function pipeline_category(): SettingsCategory[] {
-  const { stages, runner } = page();
+  const { stages, runner, github_webhook } = page();
   const sections: SettingsSection[] = [
     ...(stages ? [{ id: "stages", heading: "Stages", hint: "The steps every item goes through, in order, each run by an agent on its own model.", content: <StagesSettings stages_client={stages} /> }] : []),
     ...(runner
       ? [
           { id: "github", heading: "GitHub", hint: "The account issues are found and opened with.", content: <GitHubSettings runner={runner} /> },
+          ...webhook_section(),
           { id: "runs", heading: "Runs", hint: page().daemon_is_here ? "How this computer runs each stage's agent." : "How the computer that holds the checkouts runs each stage's agent.", content: <RunSettings runner={runner} is_here={page().daemon_is_here === true} /> },
         ]
-      : []),
+      : webhook_section()),
   ];
   return sections.length ? [{ heading: "Pipeline", sections }] : [];
+
+  // GitHub's webhooks wherever the host takes them and the user is an admin, with or without a runner.
+  function webhook_section(): SettingsSection[] {
+    return github_webhook ? [{ id: "webhooks", heading: "Webhooks", hint: "Let GitHub tell X-Dev at once when a pull request, its checks or an issue change, instead of waiting for the next poll.", content: <WebhookSettings webhooks={github_webhook} runner={runner} /> }] : [];
+  }
 }
 
 // ── History ──────────────────────────────────────────────────────────────────

@@ -320,8 +320,24 @@ Other backends, such as OpenCode, can be added as plugins later.
 - The issue is closed once the item has been through Close, unless it is closed already.
 - Review opens the pull request with `Closes #<n>`. X-Dev finds it from the item's branch after each
   run and keeps its state and checks; the item page shows them. `CyclePoller` looks again every half
-  minute while checks run and every five minutes otherwise; GitHub's webhooks through
-  `server/forge_webhook` are still to come.
+  minute while checks run and every five minutes otherwise.
+- GitHub's webhooks make that at once. `POST /api/github/webhook` on the server, or on a desktop
+  daemon that lets other devices connect, takes `ping`, `pull_request`, `check_suite`, `check_run`,
+  `status`, `workflow_run`, `issues` and `issue_comment`, with no session: X-Libs `server/forge_webhook`
+  checks `X-Hub-Signature-256` over the raw body in constant time against the host's secret, refuses
+  anything unsigned with 401, turns away an address that keeps failing, and answers other events with
+  204. Only the repository and the pull request numbers, branches and issue numbers a delivery names
+  are kept, as that repository's latest delivery in a synced table, and a delivery id seen before
+  is not synced twice. Where the GitHub sync runs, the open items named by issue, pull request or
+  branch are synced after five quiet seconds, so a burst of check events makes one sync per item; a
+  delivery the server took reaches the desktop daemons by sync and is synced there. A repository
+  heard from in the last half hour is polled only every five minutes, as a fallback.
+- The webhook secret is made by X-Dev, kept in a file of mode 600 beside the database or in the
+  desktop profile, never in the synced data or a log, and given back only by the admin's explicit
+  `show_github_webhook_setup`. Settings → Pipeline → Webhooks shows the payload URL, content type and
+  events, makes and replaces the secret, adds the hook through `gh api` with the secret on standard
+  input where the host runs gh, and lists the latest delivery per repository. A desktop-only X-Dev
+  behind NAT that GitHub cannot reach gets no deliveries and keeps polling.
 - Every write goes through `gh` after the run has ended and never fails it: what went wrong is kept
   on the item and shown there, and the next run, the next poll or **Sync to GitHub** tries again.
   Reports and the sheet pass the `secrets` check first and are held back when they fail it.
@@ -393,7 +409,7 @@ reports sync; worktrees and stage files stay on the machine that runs the agents
 | Running the agent | `agent/programs` (`run_program`), `agent/long_runs` for runs that outlive a restart |
 | Following a run | `server/events`, `server/runs`, `web/react/following`, `web/react/outcome_log` |
 | Stage file fields | `web/react/chip_field`, `web/react/suggestions` |
-| GitHub events | `server/forge_webhook`, `server/poller` |
+| GitHub events | `server/forge_webhook` (`is_signed`, `AddressLockout`, `Debouncer`, `register_webhook_route`), `server/poller` |
 | Notifications | `agent/desktop_notify`, `server/notify/*`, `phone_notices` |
 | Lane grouping and filters | `grouping` (`group_items`), `filter`, `FilterStack` |
 | Reports | `web/react/markdown` |

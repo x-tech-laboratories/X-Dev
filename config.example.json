@@ -1,5 +1,6 @@
 {
   "database": "dev-data/dev.db",
   "backups_folder": "dev-data/backups",
-  "stages_folder": "dev-data/stages"
+  "stages_folder": "dev-data/stages",
+  "github_webhook_secret_file": "dev-data/github-webhook-secret"
 }

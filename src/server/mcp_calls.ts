@@ -6,25 +6,27 @@
 import type { MethodSpec } from "@x-tech-laboratories/x-libs/api_spec";
 import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 
-import { dev_bridge, runner_bridge, stages_bridge } from "../shared/bridge.ts";
+import { dev_bridge, runner_bridge, stages_bridge, webhook_bridge } from "../shared/bridge.ts";
 import { without_secrets } from "../shared/mcp.ts";
 import { runner_api } from "../shared/runs/api.ts";
 import type { RunnerMethods } from "../shared/runs/runner.ts";
 import { stages_api } from "../shared/stages/api.ts";
 import type { StagesMethods } from "../shared/stages/model.ts";
 import { bind_methods, dev_api, is_read_only } from "../shared/store.ts";
+import { webhooks_api } from "../shared/webhooks/api.ts";
+import type { WebhookMethods } from "../shared/webhooks/model.ts";
 import { remote_runner } from "./remote_runner.ts";
 
 // ── Tools ────────────────────────────────────────────────────────────────────
 
-// The tools offered: the runner's only where agents run.
-export function mcp_api(has_runner: boolean): Record<string, MethodSpec> {
-  return { ...dev_api, ...stages_api, ...(has_runner ? runner_api : {}) };
+// The tools offered: the runner's only where agents run, and the webhook's where the host takes deliveries.
+export function mcp_api(has_runner: boolean, has_webhooks = false): Record<string, MethodSpec> {
+  return { ...dev_api, ...stages_api, ...(has_runner ? runner_api : {}), ...(has_webhooks ? webhooks_api : {}) };
 }
 
-// Whether a tool reaches the stage files or the runner, which only an admin may use.
+// Whether a tool reaches the stage files, the runner or the webhook's secret, which only an admin may use.
 export function is_admin_tool(method: string): boolean {
-  return method in stages_api || method in runner_api;
+  return method in stages_api || method in runner_api || method in webhooks_api;
 }
 
 export interface McpCallOptions {
@@ -33,10 +35,11 @@ export interface McpCallOptions {
   announce: () => void;
   stages: StagesMethods;
   runner?: RunnerMethods | undefined;
+  webhooks?: WebhookMethods | undefined;
 }
 
 // Runs one tool; the runner goes through the same refusals as any caller from elsewhere.
-export function create_mcp_call({ database, announce, stages, runner }: McpCallOptions): (method: string, args: unknown[]) => Promise<unknown> {
+export function create_mcp_call({ database, announce, stages, runner, webhooks }: McpCallOptions): (method: string, args: unknown[]) => Promise<unknown> {
   const guarded_runner = runner && remote_runner(runner);
   return async (method, args) => {
     if (method in runner_api && guarded_runner) {
@@ -44,6 +47,7 @@ export function create_mcp_call({ database, announce, stages, runner }: McpCallO
       if (!is_read_only(method)) announce();
       return result;
     }
+    if (method in webhooks_api && webhooks) return webhook_bridge.dispatch(webhooks, method, args);
     if (method in stages_api) {
       const result = await stages_bridge.dispatch(stages, method, args);
       if (!is_read_only(method)) announce();
