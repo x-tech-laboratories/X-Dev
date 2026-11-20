@@ -7,7 +7,7 @@ import { and, desc, eq, isNull, ne, synced_tables } from "@x-tech-laboratories/x
 import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 
 import { define_feature, drizzle_of, new_id } from "../feature.ts";
-import { check_item, proposed, read_status, type Item, type ItemInput, type ItemKind } from "../items/model.ts";
+import { check_item, proposed, read_status, title_likeness, type Item, type ItemInput, type ItemKind } from "../items/model.ts";
 import { items } from "../items/schema.ts";
 import { runs_api } from "./api.ts";
 import { migrations } from "./migrations/index.ts";
@@ -78,7 +78,7 @@ export function update_run(database: SqlDatabase, id: string, changes: RunChange
     .run();
 }
 
-export function set_item_fields(database: SqlDatabase, id: string, changes: Partial<Pick<ItemRow, "stage" | "branch" | "status" | "notes" | "body" | "closed_at">>): void {
+export function set_item_fields(database: SqlDatabase, id: string, changes: Partial<Pick<ItemRow, "stage" | "branch" | "status" | "notes" | "body" | "closed_at" | "issue_number">>): void {
   drizzle_of(database).update(items).set(changes).where(eq(items.id, id)).run();
 }
 
@@ -91,19 +91,6 @@ export interface ProposalInput {
   why: string;
   // Where it was seen, such as files and lines.
   where?: string;
-}
-
-function words_of(title: string): Set<string> {
-  return new Set(title.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 2));
-}
-
-// How alike two titles are, from 0 to 1, by the words they share.
-export function title_likeness(first: string, second: string): number {
-  const first_words = words_of(first);
-  const second_words = words_of(second);
-  if (!first_words.size || !second_words.size) return 0;
-  const shared = [...first_words].filter((word) => second_words.has(word)).length;
-  return shared / new Set([...first_words, ...second_words]).size;
 }
 
 const same_idea_likeness = 0.6;

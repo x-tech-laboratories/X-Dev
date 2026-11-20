@@ -7,11 +7,12 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { create_run_mcp, type RunMcp } from "../src/server/run_mcp.ts";
-import { create_runner, draft_of_reply, type Runner } from "../src/server/runner.ts";
+import { create_runner, draft_of_reply, match_repository, type Runner } from "../src/server/runner.ts";
 import { create_stage_files } from "../src/server/stage_files.ts";
 import { bind_methods, open_store } from "../src/shared/store.ts";
 
 const fake_claude = join(import.meta.dirname, "fixtures", "fake_claude.mjs");
+const fake_gh = join(import.meta.dirname, "fixtures", "fake_gh.mjs");
 const repository = "x-tech-laboratories/X-Dev";
 
 // A throwaway git checkout with one commit, standing in for the repository's own.
@@ -160,11 +161,35 @@ describe("the runner", () => {
   });
 });
 
+describe("a described item's repository", () => {
+  it("is a known one matched without case or owner, else the agent's guess when it is a repository name", () => {
+    const known = ["x-tech-laboratories/X-Dev", "x-tech-laboratories/X-Libs", "beatlink/x-libs"];
+    expect(match_repository("X-TECH-LABORATORIES/x-dev", known)).toBe("x-tech-laboratories/X-Dev");
+    expect(match_repository("X-Dev", known)).toBe("x-tech-laboratories/X-Dev");
+    expect(match_repository("x-libs", known)).toBe("");
+    expect(match_repository("someone/new-repo", known)).toBe("someone/new-repo");
+    expect(match_repository("", known)).toBe("");
+  });
+});
+
+describe("linking an item's issue", () => {
+  it("records the issue found or opened, and leaves an item that has one alone", async () => {
+    const { store, runner } = await setup();
+    runner.methods.set_runner_setting("gh_program", fake_gh);
+    const id = store.save_item({ title: "Swimlanes on the board", repository: "owner/has-match" });
+    const numbered = store.save_item({ title: "Numbered", repository, issue_number: 9 });
+
+    expect(await runner.methods.link_issue(id)).toEqual({ number: 5, opened: false });
+    expect(store.get_item(id).issue_number).toBe(5);
+    expect(await runner.methods.link_issue(numbered)).toEqual({ number: 9, opened: false });
+  });
+});
+
 describe("a described item's draft", () => {
-  it("takes the agent's JSON, fenced or not, keeping only a repository it knows", () => {
+  it("takes the agent's JSON, fenced or not", () => {
     const reply = { result: '```json\n{"title": "Swimlanes", "kind": "bug", "repository": "x-tech-laboratories/X-Dev", "body": "Lanes per item."}\n```' };
     expect(draft_of_reply(reply, [repository])).toEqual({ title: "Swimlanes", kind: "bug", repository, body: "Lanes per item." });
-    expect(draft_of_reply({ result: '{"title": "Swimlanes", "kind": "chore", "repository": "elsewhere/repo"}' }, [repository])).toEqual({ title: "Swimlanes", kind: "feature", repository: "", body: "" });
+    expect(draft_of_reply({ result: '{"title": "Swimlanes", "kind": "chore", "repository": "x-dev"}' }, [repository])).toEqual({ title: "Swimlanes", kind: "feature", repository, body: "" });
     expect(() => draft_of_reply({ result: "No idea." }, [])).toThrow("fill the form in by hand");
   });
 });

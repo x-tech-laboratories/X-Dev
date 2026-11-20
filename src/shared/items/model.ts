@@ -107,6 +107,19 @@ export function issue_link(item: Pick<Item, "repository" | "issue_number">): str
   return item.issue_number === null ? null : `https://github.com/${item.repository}/issues/${item.issue_number}`;
 }
 
+function words_of(title: string): Set<string> {
+  return new Set(title.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 2));
+}
+
+// How alike two titles are, from 0 to 1, by the words they share.
+export function title_likeness(first: string, second: string): number {
+  const first_words = words_of(first);
+  const second_words = words_of(second);
+  if (!first_words.size || !second_words.size) return 0;
+  const shared = [...first_words].filter((word) => second_words.has(word)).length;
+  return shared / new Set([...first_words, ...second_words]).size;
+}
+
 // A sheet with the sections given replaced, refused when it grows past the limit.
 export function merge_status(sheet: StatusSheet, changes: Partial<Record<string, string>>): StatusSheet {
   const merged = { ...sheet };

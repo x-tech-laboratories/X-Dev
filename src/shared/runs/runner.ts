@@ -19,9 +19,11 @@ export interface RunnerSettings {
   claude_program: string;
   // The model that turns a description into an item.
   describer_model: string;
+  // The gh program, signed into GitHub, through which issues are found and opened.
+  gh_program: string;
 }
 
-export const runner_setting_defaults: RunnerSettings = { repositories: {}, permission_mode: "auto", claude_program: "claude", describer_model: "haiku" };
+export const runner_setting_defaults: RunnerSettings = { repositories: {}, permission_mode: "auto", claude_program: "claude", describer_model: "haiku", gh_program: "gh" };
 
 // Settings saved on the computer, each default where it is missing or damaged.
 export function read_runner_settings(saved: unknown): RunnerSettings {
@@ -32,6 +34,7 @@ export function read_runner_settings(saved: unknown): RunnerSettings {
     permission_mode: permission_modes.includes(fields.permission_mode as PermissionMode) ? (fields.permission_mode as PermissionMode) : runner_setting_defaults.permission_mode,
     claude_program: typeof fields.claude_program === "string" && fields.claude_program.trim() ? fields.claude_program.trim() : runner_setting_defaults.claude_program,
     describer_model: typeof fields.describer_model === "string" && fields.describer_model.trim() ? fields.describer_model.trim() : runner_setting_defaults.describer_model,
+    gh_program: typeof fields.gh_program === "string" && fields.gh_program.trim() ? fields.gh_program.trim() : runner_setting_defaults.gh_program,
   };
 }
 
@@ -62,6 +65,14 @@ export interface RunnerMethods {
   discard_run: (run_id: string) => Promise<void>;
   // A draft item from free text, filled in by an agent for the user to check; nothing is saved.
   describe_item: (text: string) => Promise<ItemInput>;
+  // Links an item with no issue to an open one that matches it, or opens one.
+  link_issue: (item_id: string) => Promise<IssueLink>;
+}
+
+export interface IssueLink {
+  number: number;
+  // Whether X-Dev opened it rather than finding one already open.
+  opened: boolean;
 }
 
 export const runner_method_names = [
@@ -74,4 +85,5 @@ export const runner_method_names = [
   "answer_run",
   "discard_run",
   "describe_item",
+  "link_issue",
 ] as const satisfies readonly (keyof RunnerMethods)[];

@@ -80,7 +80,7 @@ const mode_labels: Record<PermissionMode, string> = {
 
 export function RunSettings({ runner }: { runner: Client<RunnerMethods> }) {
   const status = use_resource(() => runner.get_runner(), [runner], { watch: data_watch });
-  const set = (key: "permission_mode" | "claude_program" | "describer_model", value: string) => void succeeds(() => runner.set_runner_setting(key, value as never)).then(() => data_watch.bump());
+  const set = (key: "permission_mode" | "claude_program" | "describer_model" | "gh_program", value: string) => void succeeds(() => runner.set_runner_setting(key, value as never)).then(() => data_watch.bump());
 
   return (
     <Loaded resource={status}>
@@ -91,6 +91,9 @@ export function RunSettings({ runner }: { runner: Client<RunnerMethods> }) {
           </SettingRow>
           <SettingRow label="Claude program" hint="The claude command, found on the PATH unless a full path is given.">
             <CommitInput aria-label="Claude program" value={settings.claude_program} on_commit={(event) => set("claude_program", event.currentTarget.value)} />
+          </SettingRow>
+          <SettingRow label="GitHub program" hint="The gh command, signed into GitHub, through which issues are found and opened; X-Dev never holds a token.">
+            <CommitInput aria-label="GitHub program" value={settings.gh_program} on_commit={(event) => set("gh_program", event.currentTarget.value)} />
           </SettingRow>
           <SettingRow label="Describing model" hint="The model that fills in the form from a description; a small one is enough.">
             <CommitInput aria-label="Describing model" list="describing-models" value={settings.describer_model} on_commit={(event) => set("describer_model", event.currentTarget.value)} />

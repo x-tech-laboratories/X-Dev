@@ -65,7 +65,11 @@ export function ItemDialog({ initial, on_close }: { initial: Item | null; on_clo
   async function save(): Promise<void> {
     if (!item.title.trim()) return void toast("An item needs a title.", { tone: "bad" });
     if (!is_repository(item.repository.trim())) return void toast("Name the repository as owner/name.", { tone: "bad" });
-    if (await succeeds(() => calls().save_item(item))) on_close();
+    const id = await attempt(() => calls().save_item(item));
+    if (id === undefined) return;
+    on_close();
+    // An item saved with no issue is linked to a matching open one, or gets one of its own.
+    if (!item.issue_number && runner) await link_issue(id);
   }
 
   return (
@@ -100,7 +104,14 @@ export function ItemDialog({ initial, on_close }: { initial: Item | null; on_clo
             <ComboField id="item-repository" label="Repository" placeholder="owner/name" value={item.repository} options={repositories.data ?? []} list_on_focus on_change={(repository) => change({ repository })} />
           </FormRow>
           <FormRow label="Issue" id="item-issue">
-            <input id="item-issue" type="number" min={1} value={item.issue_number ?? ""} onChange={(event) => change({ issue_number: event.currentTarget.value ? Number(event.currentTarget.value) : null })} />
+            <input
+              id="item-issue"
+              type="number"
+              min={1}
+              placeholder={runner ? "Found or opened when left blank" : "None yet"}
+              value={item.issue_number ?? ""}
+              onChange={(event) => change({ issue_number: event.currentTarget.value ? Number(event.currentTarget.value) : null })}
+            />
           </FormRow>
           <FormRow label="What it asks for" id="item-body">
             <textarea id="item-body" rows={6} value={item.body ?? ""} onChange={(event) => change({ body: event.currentTarget.value })} />
@@ -109,6 +120,18 @@ export function ItemDialog({ initial, on_close }: { initial: Item | null; on_clo
       )}
     </Dialog>
   );
+}
+
+// ── Issues ───────────────────────────────────────────────────────────────────
+
+// Links an item to a matching open issue, or opens one, saying which.
+export async function link_issue(item_id: string): Promise<void> {
+  const { runner } = page();
+  if (!runner) return;
+  const link = await attempt(() => runner.link_issue(item_id));
+  if (!link) return;
+  data_watch.bump();
+  toast(link.opened ? `Opened issue #${link.number}.` : `Linked to the open issue #${link.number}.`, { tone: "good" });
 }
 
 // ── Inbox ────────────────────────────────────────────────────────────────────
@@ -125,7 +148,7 @@ function Inbox() {
             <span className="muted small"> · {proposal.repository}</span>
             {proposal.body && <div className="muted small">{proposal.body}</div>}
             <span className="row-actions">
-              <button type="button" aria-label={`Take ${proposal.title}`} onClick={() => void succeeds(() => calls().accept_proposal(proposal.id), "Taken into Triage.")}>
+              <button type="button" aria-label={`Take ${proposal.title}`} onClick={() => void succeeds(() => calls().accept_proposal(proposal.id), "Taken into Triage.").then((taken) => (taken ? link_issue(proposal.id) : undefined))}>
                 Take
               </button>
               <button type="button" aria-label={`Drop ${proposal.title}`} onClick={() => void succeeds(() => calls().drop_proposal(proposal.id))}>

@@ -19,6 +19,7 @@ import type { Run, RunState } from "../../shared/runs/model.ts";
 import { done, model_suggestions, type Stage } from "../../shared/stages/model.ts";
 import { calls, data_watch, page, succeeds, use_data } from "../api.ts";
 import { DialogButtons } from "../forms.tsx";
+import { link_issue } from "./index.tsx";
 
 // ── Words ────────────────────────────────────────────────────────────────────
 
@@ -283,7 +284,16 @@ export function ItemView({ id }: { id: string }) {
                   {stage_label(all_stages, found.stage)}
                 </>
               }
-              actions={<a href="#/items">All items</a>}
+              actions={
+                <>
+                  {runner && found.issue_number === null && found.stage !== "proposed" && (
+                    <button type="button" onClick={() => void link_issue(found.id)}>
+                      Find or Open an Issue
+                    </button>
+                  )}
+                  <a href="#/items">All items</a>
+                </>
+              }
             />
             {found.body && <Markdown text={found.body} />}
             <RunControls key={found.stage} item={found} stages={all_stages} busy={runner_status.data?.running_run_id != null} />

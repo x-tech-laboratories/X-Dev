@@ -14,6 +14,7 @@ import { answers_input, append_output, branch_name_of, build_run_input, needs_in
 import { read_runner_settings, type RunnerMethods, type RunnerSettings, type StartOptions } from "../shared/runs/runner.ts";
 import { find_run, insert_run, latest_report, runs_in_state, set_item_fields, update_run } from "../shared/runs/store.ts";
 import { done, type Stage, type StagesMethods } from "../shared/stages/model.ts";
+import { find_or_open_issue } from "./github.ts";
 import type { RunMcp } from "./run_mcp.ts";
 import { run_token_header } from "./run_mcp.ts";
 
@@ -306,16 +307,25 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
       const description = text.trim();
       if (!description) throw new Error("describe the feature or bug first");
       const settings = read_settings();
-      const repositories = Object.keys(settings.repositories);
+      const tracked = (database().prepare("SELECT DISTINCT repository FROM items").all() as { repository: string }[]).map((row) => row.repository);
+      const repositories = [...new Set([...Object.keys(settings.repositories), ...tracked])].sort();
       const prompt = [
         "Turn the description below into one JSON object and reply with that object alone:",
-        `{"title": "what it is in a few words", "kind": "${item_kinds.join('" or "')}", "repository": "one of ${JSON.stringify(repositories)}, or empty when none fits", "body": "what it asks for, in plain words, as an issue's body"}`,
+        `{"title": "what it is in a few words", "kind": "${item_kinds.join('" or "')}", "repository": "owner/name: one of ${JSON.stringify(repositories)} when it fits, else the one the description names, else empty", "body": "what it asks for, in plain words, as an issue's body"}`,
         "",
         description,
       ].join("\n");
       const result = await run_program([settings.claude_program, "-p", "--model", settings.describer_model, "--output-format", "json", "--tools", ""], { stdin: prompt, stdout: "keep", stderr: "keep", cwd: folder });
       if (result.exit_code !== 0) throw new Error(`the agent could not describe it: ${result.stderr.trim().split("\n").at(-1) || `exit ${result.exit_code}`}`);
       return draft_of_reply(JSON.parse(result.stdout) as { result?: string }, repositories);
+    },
+    link_issue: async (item_id) => {
+      const item = item_of(item_id);
+      if (item.issue_number !== null) return { number: item.issue_number, opened: false };
+      const link = await find_or_open_issue({ repository: item.repository, title: item.title, body: item.body }, read_settings().gh_program);
+      set_item_fields(database(), item_id, { issue_number: link.number });
+      after_write();
+      return link;
     },
   };
 
@@ -335,6 +345,18 @@ export function create_runner({ database, stages, run_mcp, folder, after_write, 
 
 // ── Describing ───────────────────────────────────────────────────────────────
 
+// The known repository a guess names, matched without case and by its name alone, or the guess itself when it is a
+// repository name at all; empty otherwise.
+export function match_repository(guess: string, repositories: string[]): string {
+  const wanted = guess.trim().toLowerCase();
+  if (!wanted) return "";
+  const exact = repositories.find((repository) => repository.toLowerCase() === wanted);
+  if (exact) return exact;
+  const by_name = repositories.filter((repository) => repository.split("/")[1]!.toLowerCase() === wanted.split("/").at(-1));
+  if (by_name.length === 1) return by_name[0]!;
+  return is_repository(guess.trim()) ? guess.trim() : "";
+}
+
 // The draft an agent's reply gives, its fields checked loosely so the user can fix what is off before saving.
 export function draft_of_reply(reply: { result?: string }, repositories: string[]): ItemInput {
   const text = String(reply.result ?? "").replace(/^```(?:json)?\s*|\s*```$/g, "");
@@ -342,11 +364,11 @@ export function draft_of_reply(reply: { result?: string }, repositories: string[
   const end = text.lastIndexOf("}");
   if (start < 0 || end < start) throw new Error("the agent did not give a draft; fill the form in by hand");
   const fields = JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
-  const repository = String(fields.repository ?? "");
+  const repository = match_repository(String(fields.repository ?? ""), repositories);
   const draft: ItemInput = {
     title: String(fields.title ?? "").trim(),
     kind: item_kinds.includes(fields.kind as ItemKind) ? (fields.kind as ItemKind) : "feature",
-    repository: repositories.includes(repository) ? repository : "",
+    repository,
     body: String(fields.body ?? "").trim(),
   };
   // Checked only for its shape; an empty repository is left for the user to pick.
