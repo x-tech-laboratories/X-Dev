@@ -7,8 +7,9 @@ import type { CertificateClient } from "@x-tech-laboratories/x-libs/certificate_
 import type { EventsClient } from "@x-tech-laboratories/x-libs/electron/events";
 import type { LocalMcpClient } from "@x-tech-laboratories/x-libs/local_mcp_protocol";
 
-import { certificates_api_name, desktop_api_name, device_api_name, events_api_name, dev_api_name, local_mcp_api_name, stages_api_name, type DeviceMethods, type DevEvents, type PageApi } from "../../shared/page_api.ts";
+import { certificates_api_name, desktop_api_name, device_api_name, events_api_name, dev_api_name, local_mcp_api_name, stages_api_name, runner_api_name, type DeviceMethods, type DevEvents, type PageApi } from "../../shared/page_api.ts";
 import type { DesktopMethods } from "../../shared/desktop.ts";
+import type { RunnerMethods } from "../../shared/runs/runner.ts";
 import type { StagesMethods } from "../../shared/stages/model.ts";
 import type { DevMethods } from "../../shared/store.ts";
 
@@ -35,6 +36,7 @@ export function desktop_api(): PageApi {
     local_mcp: desktop[local_mcp_api_name] as LocalMcpClient,
     desktop: desktop[desktop_api_name] as Client<DesktopMethods>,
     stages: desktop[stages_api_name] as Client<StagesMethods>,
+    runner: desktop[runner_api_name] as Client<RunnerMethods>,
     on_change: (listener) => events.on("changed", listener),
   };
 }

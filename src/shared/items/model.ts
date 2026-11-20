@@ -27,8 +27,13 @@ export interface Item {
   kind: ItemKind;
   repository: string;
   issue_number: number | null;
+  body: string;
   stage: string;
   status: StatusSheet;
+  notes: string;
+  branch: string;
+  source_item_id: string | null;
+  source_run_id: string | null;
   created_at: string;
   closed_at: string | null;
 }
@@ -39,6 +44,7 @@ export interface ItemInput {
   kind?: ItemKind;
   repository: string;
   issue_number?: number | null;
+  body?: string;
   stage?: string;
 }
 
@@ -48,8 +54,12 @@ export interface CheckedItem {
   kind: ItemKind;
   repository: string;
   issue_number: number | null;
+  body: string;
   stage: string;
 }
+
+// The stage a proposal waits at in the inbox, before Triage.
+export const proposed = "proposed";
 
 // The most a status sheet may hold, so it stays a summary rather than a log.
 export const status_limit = 6000;
@@ -89,7 +99,7 @@ export function check_item(input: ItemInput): CheckedItem {
   const issue_number = input.issue_number ?? null;
   if (issue_number !== null && (!Number.isInteger(issue_number) || issue_number < 1)) throw new Error("the issue number must be a whole number above 0");
   const stage = input.stage?.trim() || "triage";
-  return { id: input.id, title, kind, repository, issue_number, stage };
+  return { id: input.id, title, kind, repository, issue_number, body: input.body?.trim() ?? "", stage };
 }
 
 // A sheet with the sections given replaced, refused when it grows past the limit.

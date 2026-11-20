@@ -9,12 +9,13 @@ import { create_sync_engine } from "@x-tech-laboratories/x-libs/sync_engine";
 
 import { forget_synced_changes, history_feature, install_history, record_history } from "./history/store.ts";
 import { items_feature } from "./items/store.ts";
+import { runs_feature } from "./runs/store.ts";
 import { is_read_only } from "./page_api.ts";
 import { settings_feature } from "./settings.ts";
 
 // ── Features ─────────────────────────────────────────────────────────────────
 
-export const features = [settings_feature, items_feature, history_feature];
+export const features = [settings_feature, items_feature, runs_feature, history_feature];
 
 export const sync_engine = create_sync_engine({ tables: features.flatMap((feature) => feature.tables), after_apply: forget_synced_changes });
 
@@ -43,7 +44,7 @@ export function open_store(database: SqlDatabase): void {
 // ── Calls ────────────────────────────────────────────────────────────────────
 
 const all_methods = {
-  ...(Object.assign({}, ...features.map((feature) => feature.methods)) as typeof settings_feature.methods & typeof items_feature.methods & typeof history_feature.methods),
+  ...(Object.assign({}, ...features.map((feature) => feature.methods)) as typeof settings_feature.methods & typeof items_feature.methods & typeof runs_feature.methods & typeof history_feature.methods),
   // Every setting, the ones never set at their defaults, so a page needs no list of defaults of its own.
   get_settings: (database: SqlDatabase): Record<string, unknown> => ({ ...setting_defaults, ...settings_feature.methods.get_settings(database) }),
 };

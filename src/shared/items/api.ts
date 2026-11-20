@@ -17,7 +17,7 @@ const status_changes = {
 export const items_api = {
   list_items: {
     description: "Lists the items, each a feature or bug fix in one GitHub repository, newest first, with the stage each is at; closed items only when asked.",
-    params: [{ name: "include_closed", schema: { type: "boolean", description: "Whether closed items are listed too." } }],
+    params: [{ name: "include_closed", schema: { type: "boolean", description: "Whether closed items are listed too; false when left out." }, optional: true }],
   },
   get_item: { description: "One item with its status sheet.", params: [{ name: "id", schema: id_of("item") }] },
   save_item: {
@@ -33,6 +33,7 @@ export const items_api = {
             kind: { type: "string", enum: item_kinds, description: "feature or bug." },
             repository: text("The GitHub repository as owner/name, such as x-tech-laboratories/X-Dev."),
             issue_number: { type: ["integer", "null"], minimum: 1, description: "The GitHub issue it tracks, or null for none yet." },
+            body: text("What the item asks for, as an issue's body would say it."),
             stage: text("The stage it is at, such as plan; triage when left out."),
           },
           required: ["title", "repository"],

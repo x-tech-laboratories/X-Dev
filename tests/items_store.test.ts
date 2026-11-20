@@ -25,6 +25,7 @@ describe("an item's fields", () => {
       kind: "feature",
       repository: "x-tech-laboratories/X-Dev",
       issue_number: null,
+      body: "",
       stage: "triage",
     });
   });
