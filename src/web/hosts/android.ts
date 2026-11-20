@@ -20,6 +20,7 @@ import { notice_kinds, pull_request_snapshots, watch_notices, type NoticeKind } 
 import type { RunnerMethods } from "../../shared/runs/runner.ts";
 import type { StagesMethods } from "../../shared/stages/model.ts";
 import type { DevMethods } from "../../shared/store.ts";
+import type { WebhookMethods } from "../../shared/webhooks/model.ts";
 import { follow_remote, read_abilities, remote_table, type RemoteLink } from "./remote.ts";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -118,6 +119,7 @@ export async function android_api(): Promise<PageApi> {
     certificates: phone_certificates(),
     ...(abilities.stages ? { stages, backups: remote_table<BackupClient>(link, "/api/backup/") as BackupClient } : {}),
     ...(abilities.runner ? { runner } : {}),
+    ...(abilities.webhooks ? { github_webhook: remote_table<WebhookMethods>(link, "/api/github_webhook/") } : {}),
     notice_kinds: {
       get: async () => read_notice_kinds(localStorage.getItem(notice_kinds_key)),
       set: async (kind, on) => localStorage.setItem(notice_kinds_key, JSON.stringify({ ...read_notice_kinds(localStorage.getItem(notice_kinds_key)), [kind]: on })),

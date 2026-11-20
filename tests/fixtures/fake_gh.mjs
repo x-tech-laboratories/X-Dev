@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Stands in for gh in the tests. owner/has-match holds an open issue like the item, owner/broken fails, a new issue is
 // #42 with its title and body kept in a file, and signing in is kept in the file FAKE_GH_STATE names. Issues, labels,
-// comments, pull requests and checks live in the JSON file FAKE_GH_DATA names, which also logs each call.
+// comments, pull requests, checks and webhooks live in the JSON file FAKE_GH_DATA names, which also logs each call.
 
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -57,6 +57,16 @@ if (argv[0] === "auth" && argv[1] === "status") {
     process.stdout.write(`https://github.com/${repository}/issues/${argv[2]}#issuecomment-${id}\n`);
   } else if (argv[0] === "issue" && argv[1] === "close") {
     issue().state = "CLOSED";
+  } else if (argv[0] === "api" && argv[3].includes("/hooks")) {
+    const [, owner, name, , hook_id] = argv[3].split("/");
+    const hooks = ((data.hooks ??= {})[`${owner}/${name}`] ??= []);
+    if (argv[2] === "GET") process.stdout.write(JSON.stringify(hooks.map(({ id, config }) => ({ id, config: { url: config.url } }))));
+    else {
+      const body = JSON.parse(input());
+      if (argv[2] === "POST") hooks.push({ id: hooks.length + 1, ...body });
+      else Object.assign(hooks.find((hook) => String(hook.id) === hook_id) ?? fail("gh: Not Found (HTTP 404)"), body);
+      process.stdout.write("{}");
+    }
   } else if (argv[0] === "api") {
     const id = Number(argv[3].split("/").at(-1));
     const comment = Object.values(data.issues).flatMap((each) => each.comments).find((each) => each.id === id);

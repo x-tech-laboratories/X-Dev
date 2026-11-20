@@ -10,12 +10,13 @@ import { LOCAL_CONNECTION_ID, type ConnectionClient } from "@x-tech-laboratories
 import type { EventsClient } from "@x-tech-laboratories/x-libs/electron/events";
 import type { LocalMcpClient } from "@x-tech-laboratories/x-libs/local_mcp_protocol";
 
-import { backups_api_name, connections_api_name, remote_access_api_name, certificates_api_name, desktop_api_name, device_api_name, events_api_name, dev_api_name, local_mcp_api_name, stages_api_name, runner_api_name, type DeviceMethods, type DevEvents, type PageApi } from "../../shared/page_api.ts";
+import { backups_api_name, connections_api_name, remote_access_api_name, certificates_api_name, desktop_api_name, device_api_name, events_api_name, dev_api_name, local_mcp_api_name, stages_api_name, runner_api_name, webhooks_api_name, type DeviceMethods, type DevEvents, type PageApi } from "../../shared/page_api.ts";
 import type { DesktopMethods } from "../../shared/desktop.ts";
 import type { RemoteAccessMethods } from "../../shared/remote_access.ts";
 import type { RunnerMethods } from "../../shared/runs/runner.ts";
 import type { StagesMethods } from "../../shared/stages/model.ts";
 import type { DevMethods } from "../../shared/store.ts";
+import type { WebhookMethods } from "../../shared/webhooks/model.ts";
 
 // ── Api ──────────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ export async function desktop_api(): Promise<PageApi> {
     desktop: desktop[desktop_api_name] as Client<DesktopMethods>,
     stages: desktop[stages_api_name] as Client<StagesMethods>,
     runner: desktop[runner_api_name] as Client<RunnerMethods>,
+    github_webhook: desktop[webhooks_api_name] as Client<WebhookMethods>,
     connections,
     on_change: (listener) => events.on("changed", listener),
   };

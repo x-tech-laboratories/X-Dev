@@ -22,7 +22,7 @@ import { call_daemon, daemon_log_path, daemon_socket_path, start_daemon } from "
 import { certificate_method_names } from "@x-tech-laboratories/x-libs/certificate_protocol";
 import { local_mcp_method_names } from "@x-tech-laboratories/x-libs/local_mcp_protocol";
 
-import { backup_bridge, certificate_bridge, connection_bridge, desktop_bridge, device_bridge, dev_bridge, dev_events, local_mcp_bridge, remote_access_bridge, runner_bridge, stages_bridge } from "../shared/bridge.ts";
+import { backup_bridge, certificate_bridge, connection_bridge, desktop_bridge, device_bridge, dev_bridge, dev_events, local_mcp_bridge, remote_access_bridge, runner_bridge, stages_bridge, webhook_bridge } from "../shared/bridge.ts";
 import type { DesktopMethods, DesktopSettings } from "../shared/desktop.ts";
 import { read_pull_request } from "../shared/items/github.ts";
 import { remote_access_method_names } from "../shared/remote_access.ts";
@@ -32,6 +32,7 @@ import { route_of_link } from "../shared/links.ts";
 import { device_method_names, is_read_only } from "../shared/page_api.ts";
 import { runner_method_names } from "../shared/runs/runner.ts";
 import { stages_method_names } from "../shared/stages/model.ts";
+import { webhook_method_names } from "../shared/webhooks/model.ts";
 import { method_names } from "../shared/store.ts";
 import type { Item } from "../shared/items/model.ts";
 import { tray_view, type TrayState } from "./tray_menu.ts";
@@ -271,6 +272,7 @@ function register_bridges(): void {
   local_mcp_bridge.handle(ipcMain, forwarded(local_mcp_method_names, "local_mcp") as never, options);
   stages_bridge.handle(ipcMain, forwarded(stages_method_names, "stages") as never, options);
   runner_bridge.handle(ipcMain, forwarded(runner_method_names, "runner") as never, options);
+  webhook_bridge.handle(ipcMain, forwarded(webhook_method_names, "github_webhook") as never, options);
   const desktop: Implementation<DesktopMethods> = {
     get_desktop_settings,
     set_desktop_setting: async (key, value) => {

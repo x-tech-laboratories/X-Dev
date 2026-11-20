@@ -11,6 +11,7 @@ import type { PageApi } from "../../shared/page_api.ts";
 import type { RunnerMethods } from "../../shared/runs/runner.ts";
 import type { StagesMethods } from "../../shared/stages/model.ts";
 import type { DevMethods } from "../../shared/store.ts";
+import type { WebhookMethods } from "../../shared/webhooks/model.ts";
 
 // ── Server calls ─────────────────────────────────────────────────────────────
 
@@ -19,6 +20,7 @@ const call_path = "api/call/";
 const backup_path = "api/backup/";
 const stages_path = "api/stages/";
 const runner_path = "api/runner/";
+const webhook_path = "api/github_webhook/";
 const abilities_path = "api/abilities";
 const events_path = "api/events";
 const client_id_header = "x-client-id";
@@ -85,11 +87,11 @@ function server_table<Methods>(path: string): Methods {
   }) as Methods;
 }
 
-// What the server lets this user do: start runs where it runs agents, and change stages as an admin.
-export async function read_server_abilities(): Promise<{ runner: boolean; stages: boolean }> {
+// What the server lets this user do: start runs where it runs agents, change stages and set up webhooks as an admin.
+export async function read_server_abilities(): Promise<{ runner: boolean; stages: boolean; webhooks?: boolean }> {
   try {
     const response = await fetch(abilities_path);
-    return response.ok ? ((await response.json()) as { runner: boolean; stages: boolean }) : { runner: false, stages: true };
+    return response.ok ? ((await response.json()) as { runner: boolean; stages: boolean; webhooks?: boolean }) : { runner: false, stages: true };
   } catch {
     return { runner: false, stages: true };
   }
@@ -108,6 +110,7 @@ export async function web_api(): Promise<PageApi> {
     backups: server_backups(),
     stages: server_table<Client<StagesMethods>>(stages_path),
     ...(abilities.runner ? { runner: server_table<Client<RunnerMethods>>(runner_path) } : {}),
+    ...(abilities.webhooks ? { github_webhook: server_table<Client<WebhookMethods>>(webhook_path) } : {}),
     device: null,
     on_change: (listener) => {
       listeners.add(listener);

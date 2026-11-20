@@ -61,13 +61,19 @@ export function remote_table<Methods extends Record<keyof Methods, (...args: nev
   });
 }
 
+export interface RemoteAbilities {
+  runner: boolean;
+  stages: boolean;
+  webhooks?: boolean;
+}
+
 // What the daemon lets this device do, or nothing while it cannot be asked.
-export async function read_abilities(link: RemoteLink): Promise<{ runner: boolean; stages: boolean }> {
+export async function read_abilities(link: RemoteLink): Promise<RemoteAbilities> {
   const daemon = link.daemon();
   if (daemon === null) return { runner: false, stages: false };
   try {
     const response = await (link.fetch ?? fetch)(`${daemon.address}/api/abilities`, { headers: { authorization: `Bearer ${daemon.token}` } });
-    return response.ok ? ((await response.json()) as { runner: boolean; stages: boolean }) : { runner: false, stages: false };
+    return response.ok ? ((await response.json()) as RemoteAbilities) : { runner: false, stages: false };
   } catch {
     return { runner: false, stages: false };
   }
