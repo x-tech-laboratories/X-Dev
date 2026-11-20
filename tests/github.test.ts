@@ -1,12 +1,36 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { best_match, find_or_open_issue } from "../src/server/github.ts";
+import { best_match, find_or_open_issue, github_account, github_sign_out, start_github_sign_in } from "../src/server/github.ts";
 
 const fake_gh = join(import.meta.dirname, "fixtures", "fake_gh.mjs");
+
+afterEach(() => {
+  delete process.env.FAKE_GH_STATE;
+});
+
+describe("signing gh into GitHub", () => {
+  it("reads the account, signs in with the device code, and signs out", async () => {
+    process.env.FAKE_GH_STATE = join(mkdtempSync(join(tmpdir(), "x-dev-gh-")), "signed-in");
+    expect(await github_account(fake_gh)).toEqual({ signed_in: false, account: "", problem: "" });
+
+    const done = vi.fn();
+    expect(await start_github_sign_in(fake_gh, done)).toEqual({ code: "WXYZ-9876", url: "https://github.com/login/device" });
+    await vi.waitFor(() => expect(done).toHaveBeenCalledWith(true), { timeout: 5000 });
+    expect(await github_account(fake_gh)).toEqual({ signed_in: true, account: "test-user", problem: "" });
+
+    await github_sign_out("test-user", fake_gh);
+    expect((await github_account(fake_gh)).signed_in).toBe(false);
+  });
+
+  it("says when gh is missing", async () => {
+    expect((await github_account("/nonexistent/gh")).problem).toBe("/nonexistent/gh is not installed or not on the PATH");
+    await expect(start_github_sign_in("/nonexistent/gh", () => undefined)).rejects.toThrow("is not installed or not on the PATH");
+  });
+});
 
 describe("an item's issue", () => {
   it("is the open issue whose title is close enough, the closest winning", () => {

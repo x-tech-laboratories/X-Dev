@@ -16,7 +16,7 @@ import { SyncSettings } from "@x-tech-laboratories/x-libs/web/react/sync_setting
 import type { DesktopSettings } from "../../shared/desktop.ts";
 import { data_watch, page, set_setting, show_error, use_settings } from "../api.ts";
 import { page_features } from "../features.tsx";
-import { RepositoriesSettings, RunSettings } from "../stages/RunnerSettings.tsx";
+import { GitHubSettings, RunSettings } from "../stages/RunnerSettings.tsx";
 import { StagesSettings } from "../stages/StagesSettings.tsx";
 
 // ── Stages ───────────────────────────────────────────────────────────────────
@@ -28,7 +28,7 @@ function pipeline_category(): SettingsCategory[] {
     ...(stages ? [{ id: "stages", heading: "Stages", hint: "The steps every item goes through, in order, each run by an agent on its own model.", content: <StagesSettings stages_client={stages} /> }] : []),
     ...(runner
       ? [
-          { id: "repositories", heading: "Repositories", hint: "Where each repository's checkout is on this computer; each item's runs work in a worktree of it.", content: <RepositoriesSettings runner={runner} /> },
+          { id: "github", heading: "GitHub", hint: "The account issues are found and opened with.", content: <GitHubSettings runner={runner} /> },
           { id: "runs", heading: "Runs", hint: "How this computer runs each stage's agent.", content: <RunSettings runner={runner} /> },
         ]
       : []),

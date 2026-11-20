@@ -257,14 +257,20 @@ Other backends, such as OpenCode, can be added as plugins later.
   Inbox above the lanes holds the proposals waiting for the user.
 - **New item**: two ways in, side by side. **Describe it** takes free text, such as a pasted bug report
   or a few lines of an idea, and an agent fills in the form from it: title, feature or bug, the
-  repository it guesses from the text and the repositories listed in Settings, and a body for the
-  issue. The filled form opens for the user to check and change before anything is saved. **Fill in
+  repository it guesses from the text and the repositories X-Dev knows, a body for the issue, and,
+  for a repository X-Dev has no checkout of, the checkout it finds by searching the filesystem with
+  read-only tools. X-Dev checks that folder's git remote, searches beside the known checkouts itself
+  when the agent found none, and adds the checkout to Repositories when the item is saved. The filled form opens for the user to check and change before anything is saved. **Fill in
   the form** opens the same form empty. The agent's run is short and cheap (a setting picks its
   model, Haiku unless set), and it changes nothing until the user saves.
 - **Item**: the issue and its status sheet, then the runs as a timeline, each with its report (editable), its output and
   its cost; the branch's diff; the pull request and its checks; notes for the next run.
 - **Runs**: every run across items, for cost and failures.
-- **History**, and **Settings** with Stages, Repositories, GitHub, Agent backend, then the standard
+- **Repositories**: each repository with its checkout on this computer and its open items, added by
+  choosing the checkout's folder, its owner/name read from its git remote. They are a list of what
+  X-Dev works on, like X-Backups' repositories, so they have a page of their own rather than a
+  section of Settings.
+- **History**, and **Settings** with Stages, GitHub (signing `gh` in and out) and Runs, then the standard
   Sync, Backups, Notifications, Import and export, Plugins, Users and Tokens.
 
 Notifications: a run finished, failed, asked questions or made proposals; a pull request's checks

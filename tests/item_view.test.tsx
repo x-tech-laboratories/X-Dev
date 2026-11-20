@@ -34,12 +34,16 @@ function fake_page(with_runner = true) {
     get_runner: vi.fn(() => ({ settings: { ...runner_setting_defaults, repositories: { "x-tech-laboratories/X-Dev": "/checkouts/X-Dev" } }, running_run_id: null })),
     set_runner_setting: vi.fn(),
     set_repository: vi.fn(),
+    add_repository: vi.fn(async () => "x-tech-laboratories/X-Libs"),
     remove_repository: vi.fn(),
     start_run: vi.fn(async () => "run-1"),
     stop_run: vi.fn(),
     answer_run: vi.fn(),
     discard_run: vi.fn(async () => undefined),
     link_issue: vi.fn(async () => ({ number: 12, opened: true })),
+    get_github: vi.fn(async () => ({ signed_in: true, account: "someone", problem: "" })),
+    sign_in_github: vi.fn(async () => ({ code: "ABCD-1234", url: "https://github.com/login/device" })),
+    sign_out_github: vi.fn(async () => undefined),
     describe_item: vi.fn(async () => ({ title: "Swimlane board", kind: "feature" as const, repository: "x-tech-laboratories/X-Dev", body: "One lane per item." })),
   } satisfies RunnerMethods;
   set_page_api({
@@ -184,6 +188,22 @@ describe("the items page", () => {
     await waitFor(() => expect(runner.link_issue).toHaveBeenCalledWith(taken));
     fireEvent.click(await screen.findByRole("button", { name: "Drop Export the board" }));
     await waitFor(() => expect(store.list_proposals()).toEqual([]));
+  });
+
+  it("adds the checkout the describing agent found when the repository is new to X-Dev", async () => {
+    const { store, runner } = fake_page();
+    runner.describe_item.mockResolvedValueOnce({ title: "Wrap the board", kind: "feature", repository: "x-tech-laboratories/X-Libs", body: "", checkout: "/checkouts/X-Libs" } as never);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add Item" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Describe it"), { target: { value: "A board widget in X-Libs" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Draft the Item" }));
+
+    expect(((await within(dialog).findByLabelText("Checkout")) as HTMLInputElement).value).toBe("/checkouts/X-Libs");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(runner.add_repository).toHaveBeenCalledWith("/checkouts/X-Libs"));
+    await waitFor(() => expect(store.list_items().map((each) => each.repository)).toEqual(["x-tech-laboratories/X-Libs"]));
   });
 
   it("adds an item from a description an agent fills in, checked in the form before saving", async () => {

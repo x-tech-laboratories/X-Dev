@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import type { SettingsSection } from "@x-tech-laboratories/x-libs/web/react/layout";
 
 import { ItemsView } from "./items/index.tsx";
+import { RepositoriesView } from "./repositories/index.tsx";
 
 // ── Features ─────────────────────────────────────────────────────────────────
 
@@ -30,4 +31,7 @@ export interface PageFeature {
   settings: (props: FeatureSettingsProps) => SettingsSection[];
 }
 
-export const page_features: PageFeature[] = [{ id: "items", label: "Items", pages: [{ id: "list", label: "Items" }], view: (parts) => <ItemsView parts={parts} />, settings: () => [] }];
+export const page_features: PageFeature[] = [
+  { id: "items", label: "Items", pages: [{ id: "list", label: "Items" }], view: (parts) => <ItemsView parts={parts} />, settings: () => [] },
+  { id: "repositories", label: "Repositories", pages: [{ id: "list", label: "Repositories" }], view: () => <RepositoriesView />, settings: () => [] },
+];

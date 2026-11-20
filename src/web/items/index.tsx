@@ -4,7 +4,7 @@
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { useState } from "react";
-import { SearchBox, Select, Switch } from "@x-tech-laboratories/x-libs/web/react/controls";
+import { PathInput, SearchBox, Select, Switch } from "@x-tech-laboratories/x-libs/web/react/controls";
 import { Dialog } from "@x-tech-laboratories/x-libs/web/react/dialog";
 import { FormRow, PageHeading, Section, Tabs, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout";
 import { Empty, Loaded, use_resource } from "@x-tech-laboratories/x-libs/web/react/states";
@@ -13,6 +13,7 @@ import { DataTable, type TableColumn } from "@x-tech-laboratories/x-libs/web/rea
 import { toast } from "@x-tech-laboratories/x-libs/web/react/toasts";
 
 import { is_repository, issue_link, item_kinds, type Item, type ItemInput, type ItemKind } from "../../shared/items/model.ts";
+import type { ItemDraft } from "../../shared/runs/runner.ts";
 import { attempt, calls, data_watch, page, succeeds, use_data } from "../api.ts";
 import { DialogButtons } from "../forms.tsx";
 import { confirm_delete, row_actions_column } from "../rows.tsx";
@@ -33,7 +34,7 @@ function input_of(item: Item): ItemInput {
 type Way = "describe" | "form";
 
 // The free text an agent turns into a draft, which then opens in the form for the user to check.
-function DescribePane({ on_draft }: { on_draft: (draft: ItemInput) => void }) {
+function DescribePane({ on_draft }: { on_draft: (draft: ItemDraft) => void }) {
   const { runner } = page();
   const [text, set_text] = useState("");
   const [busy, set_busy] = useState(false);
@@ -56,15 +57,24 @@ function DescribePane({ on_draft }: { on_draft: (draft: ItemInput) => void }) {
 }
 
 export function ItemDialog({ initial, on_close }: { initial: Item | null; on_close: () => void }) {
-  const { runner } = page();
+  const { runner, desktop } = page();
   const [way, set_way] = useState<Way>(initial || !runner ? "form" : "describe");
   const [item, set_item] = useState<ItemInput>(() => (initial ? input_of(initial) : blank_item()));
+  const [checkout, set_checkout] = useState("");
   const repositories = use_resource(async () => (runner ? Object.keys((await runner.get_runner()).settings.repositories) : []), [runner]);
+  // A repository with no known checkout can be given one here, which is added to Repositories on saving.
+  const needs_checkout = Boolean(runner) && !initial && is_repository(item.repository.trim()) && repositories.data != null && !repositories.data.includes(item.repository.trim());
   const change = (changes: Partial<ItemInput>) => set_item((current) => ({ ...current, ...changes }));
 
   async function save(): Promise<void> {
     if (!item.title.trim()) return void toast("An item needs a title.", { tone: "bad" });
     if (!is_repository(item.repository.trim())) return void toast("Name the repository as owner/name.", { tone: "bad" });
+    if (needs_checkout && checkout.trim()) {
+      const added = await attempt(() => runner!.add_repository(checkout.trim()));
+      if (added === undefined) return;
+      if (added.toLowerCase() !== item.repository.trim().toLowerCase()) return void toast(`That checkout is of ${added}, not ${item.repository.trim()}.`, { tone: "bad" });
+      data_watch.bump();
+    }
     const id = await attempt(() => calls().save_item(item));
     if (id === undefined) return;
     on_close();
@@ -87,8 +97,9 @@ export function ItemDialog({ initial, on_close }: { initial: Item | null; on_clo
       )}
       {way === "describe" ? (
         <DescribePane
-          on_draft={(draft) => {
+          on_draft={({ checkout: found, ...draft }) => {
             set_item({ ...draft, issue_number: null });
+            set_checkout(found ?? "");
             set_way("form");
           }}
         />
@@ -103,6 +114,18 @@ export function ItemDialog({ initial, on_close }: { initial: Item | null; on_clo
           <FormRow label="Repository" id="item-repository">
             <ComboField id="item-repository" label="Repository" placeholder="owner/name" value={item.repository} options={repositories.data ?? []} list_on_focus on_change={(repository) => change({ repository })} />
           </FormRow>
+          {needs_checkout && (
+            <FormRow label="Checkout" id="item-checkout">
+              <PathInput
+                label="Checkout"
+                placeholder="Its folder on this computer, to add it to Repositories"
+                value={checkout}
+                on_change={set_checkout}
+                pick={async (current) => (desktop ? await desktop.pick_folder(current) : null)}
+                browse_label="Choose…"
+              />
+            </FormRow>
+          )}
           <FormRow label="Issue" id="item-issue">
             <input
               id="item-issue"

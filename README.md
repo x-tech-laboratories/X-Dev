@@ -26,9 +26,13 @@ What it does so far:
   kept after, tests, types and lint, the coverage floor, Conventional Commits and their trailer, no secrets, no
   leftovers, one-line comments, file size, libraries X-Libs wraps, and new dependencies' licences. A failed gate holds
   the item until the stage runs again or you pass the gate over with a reason, which the next stage reads.
-- **New items:** described in a few lines for an agent to fill the form in from, or filled in by hand. An item saved
-  without an issue number, or a proposal taken from the inbox, is linked to the open issue that matches its title, or
-  gets a new issue with its title and body.
+- **Repositories:** a page of the repositories X-Dev works on, each with its checkout on this computer and its open
+  items. A checkout is added by choosing its folder; its owner/name is read from its git remote.
+- **New items:** described in a few lines for an agent to fill the form in from, or filled in by hand. The describing
+  agent also looks for the repository's checkout on this computer when X-Dev does not know it yet; X-Dev checks the
+  folder's git remote, looks beside the known checkouts itself when the agent found none, and adds the checkout to
+  Repositories when the item is saved. An item saved without an issue number, or a proposal taken from the inbox, is
+  linked to the open issue that matches its title, or gets a new issue with its title and body.
 
 ## Running it
 
@@ -73,8 +77,8 @@ them. A dev run (`npm run dev`, `npm run dev:server`) keeps its own stages under
 
 ## Runs
 
-Runs start from the desktop app, whose daemon holds the checkouts. Under **Settings → Pipeline → Repositories** name
-each repository (`owner/name`) and the folder its checkout is in; an item's first run makes its worktree there, at
+Runs start from the desktop app, whose daemon holds the checkouts. On the **Repositories** page choose each checkout's
+folder, or type it in a browser; an item's first run makes its worktree there, at
 `.claude/worktrees/item-<issue or id>` on the branch `worktree-item-<issue or id>`, from the latest default branch.
 **Settings → Pipeline → Runs** sets how the agents' actions are approved (auto, checking each one, unless set), the
 `claude` program, and the small model that fills in described items.
@@ -87,7 +91,9 @@ their transcripts and reports are kept with them.
 X-Dev starts `claude`, `git` and `gh` as programs, an exception to the Application Standard's rule that a daemon does
 not shell out: Claude Code has no Node API that runs on the user's own login, Node has no API for git worktrees, and
 going through the `gh` you are signed into means X-Dev never reads, stores or passes on a GitHub token. Sign `gh` in
-with `gh auth login` before an item needs an issue; **Settings → Pipeline → Runs** names another `gh` if needed.
+from **Settings → Pipeline → GitHub**, which starts `gh`'s sign-in in the browser and shows the one-time code to enter
+on GitHub's device page, or with `gh auth login`; **Settings → Pipeline → Runs** names another `gh` if needed. Signing
+out there signs `gh` out on this computer, for every program that uses it.
 
 ## Gates and x-dev-check
 

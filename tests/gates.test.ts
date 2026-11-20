@@ -5,8 +5,8 @@ import { join, matchesGlob } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { repository_of_remote } from "../src/cli/check.ts";
 import { read_changes, read_commits, run_gates } from "../src/server/gates.ts";
+import { repository_of_remote } from "../src/shared/items/model.ts";
 import {
   check_comments,
   check_commits,

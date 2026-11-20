@@ -211,6 +211,12 @@ function register_bridges(): void {
       await apply_window_settings();
     },
     quit_completely,
+    pick_folder: async (current) => {
+      const window = BrowserWindow.getFocusedWindow();
+      const options = { properties: ["openDirectory" as const], ...(current ? { defaultPath: current } : {}) };
+      const picked = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+      return picked.canceled ? null : (picked.filePaths[0] ?? null);
+    },
   };
   desktop_bridge.handle(ipcMain, desktop, options);
 }
