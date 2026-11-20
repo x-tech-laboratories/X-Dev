@@ -10,9 +10,10 @@ import { define_feature, drizzle_of, new_id } from "../feature.ts";
 import { check_item, proposed, read_status, title_likeness, type Item, type ItemInput, type ItemKind } from "../items/model.ts";
 import { items } from "../items/schema.ts";
 import { runs_api } from "./api.ts";
+import { can_retry } from "./attempts.ts";
 import { migrations } from "./migrations/index.ts";
 import { gates_cleared, type GateOverride, type GateResult } from "../gates/model.ts";
-import { gate_marks, needs_input, report_summary, type Question, type Run, type RunState, type RunSummary, type StageRun, type TokenCounts } from "./model.ts";
+import { gate_marks, needs_input, report_summary, type Interjection, type Question, type Run, type RunState, type RunSummary, type StageRun, type TokenCounts } from "./model.ts";
 import { runs, runs_tables } from "./schema.ts";
 
 // ── Reading ──────────────────────────────────────────────────────────────────
@@ -21,7 +22,14 @@ type RunRow = typeof runs.$inferSelect;
 type ItemRow = typeof items.$inferSelect;
 
 function as_run(row: RunRow): Run {
-  return { ...row, state: row.state as RunState, questions: JSON.parse(row.questions) as Question[], gates: JSON.parse(row.gates) as GateResult[], overrides: JSON.parse(row.overrides) as GateOverride[] };
+  return {
+    ...row,
+    state: row.state as RunState,
+    questions: JSON.parse(row.questions) as Question[],
+    gates: JSON.parse(row.gates) as GateResult[],
+    overrides: JSON.parse(row.overrides) as GateOverride[],
+    interjections: JSON.parse(row.interjections) as Interjection[],
+  };
 }
 
 function as_item(row: ItemRow): Item {
@@ -57,7 +65,7 @@ export function runs_in_state(database: SqlDatabase, state: RunState): Run[] {
 
 // ── Writing ──────────────────────────────────────────────────────────────────
 
-export type RunStart = Pick<Run, "item_id" | "stage" | "model" | "effort" | "session_id" | "start_commit" | "status_before" | "input" | "started_at">;
+export type RunStart = Pick<Run, "item_id" | "stage" | "model" | "effort" | "session_id" | "start_commit" | "status_before" | "input" | "started_at"> & Partial<Pick<Run, "retry_of" | "attempt">>;
 
 export function insert_run(database: SqlDatabase, start: RunStart): string {
   const id = new_id();
@@ -68,13 +76,14 @@ export function insert_run(database: SqlDatabase, start: RunStart): string {
   return id;
 }
 
-export type RunChanges = Partial<Omit<Run, "id" | "item_id" | "questions" | "gates" | "overrides">> & { questions?: Question[]; gates?: GateResult[]; overrides?: GateOverride[] };
+export type RunChanges = Partial<Omit<Run, "id" | "item_id" | "questions" | "gates" | "overrides" | "interjections">> & { questions?: Question[]; gates?: GateResult[]; overrides?: GateOverride[]; interjections?: Interjection[] };
 
 export function update_run(database: SqlDatabase, id: string, changes: RunChanges): void {
-  const { questions, gates, overrides, ...rest } = changes;
+  const { questions, gates, overrides, interjections, ...rest } = changes;
+  const as_json = (field: string, value: unknown) => (value ? { [field]: JSON.stringify(value) } : {});
   drizzle_of(database)
     .update(runs)
-    .set({ ...rest, ...(questions ? { questions: JSON.stringify(questions) } : {}), ...(gates ? { gates: JSON.stringify(gates) } : {}), ...(overrides ? { overrides: JSON.stringify(overrides) } : {}) })
+    .set({ ...rest, ...as_json("questions", questions), ...as_json("gates", gates), ...as_json("overrides", overrides), ...as_json("interjections", interjections) })
     .where(eq(runs.id, id))
     .run();
 }
@@ -116,6 +125,7 @@ const summary_columns = {
   gates: runs.gates,
   overrides: runs.overrides,
   error: runs.error,
+  attempt: runs.attempt,
 };
 
 type SummaryRow = Omit<RunSummary, "state" | "gates_failed" | "gates_passed_over" | "gates_run"> & { state: string; gates: string; overrides: string };
@@ -199,6 +209,7 @@ export const runs_feature = define_feature({
           gates: runs.gates,
           overrides: runs.overrides,
           questions: runs.questions,
+          attempt: runs.attempt,
         })
         .from(runs)
         .where(ne(runs.state, "discarded"))
@@ -209,7 +220,10 @@ export const runs_feature = define_feature({
         const key = `${row.item_id} ${row.stage}`;
         if (latest.has(key)) continue;
         const { report, gates, overrides, questions, ...rest } = row;
-        latest.set(key, { ...rest, state: row.state as RunState, summary: report_summary(report), gates: gate_marks(JSON.parse(gates) as GateResult[], JSON.parse(overrides) as GateOverride[]), questions: JSON.parse(questions) as Question[] });
+        const results = JSON.parse(gates) as GateResult[];
+        const passed_over = JSON.parse(overrides) as GateOverride[];
+        const state = row.state as RunState;
+        latest.set(key, { ...rest, state, summary: report_summary(report), gates: gate_marks(results, passed_over), questions: JSON.parse(questions) as Question[], retryable: can_retry({ state, gates: results, overrides: passed_over }) });
       }
       return [...latest.values()];
     },

@@ -22,7 +22,8 @@ import { attempt, calls, data_watch, page, succeeds, use_data } from "../api.ts"
 import { ItemsBoard } from "../board/index.tsx";
 import { DialogButtons } from "../forms.tsx";
 import { confirm_delete, row_actions_column } from "../rows.tsx";
-import { ItemView, stage_label } from "./ItemView.tsx";
+import { ItemView } from "./ItemView.tsx";
+import { stage_label } from "./words.ts";
 
 // ── Dialog ───────────────────────────────────────────────────────────────────
 

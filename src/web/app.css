@@ -376,3 +376,86 @@ body.contained main > .board {
   text-align: right;
   user-select: none;
 }
+
+/* A run's live view: its header, the transcript scrolling in a box of its own, and the message box under it. */
+.live-run {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.transcript-frame {
+  position: relative;
+  min-width: 0;
+}
+
+.transcript {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  max-height: 32rem;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+.transcript-step {
+  min-width: 0;
+}
+
+.transcript-step > summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+  cursor: pointer;
+}
+
+/* One line of a folded step, cut with an ellipsis rather than wrapping. */
+.transcript-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcript-text {
+  margin: var(--space-2) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.transcript-code {
+  max-height: 20rem;
+  overflow: auto;
+  margin: var(--space-2) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.transcript-user {
+  padding-left: var(--space-4);
+}
+
+.transcript-jump {
+  position: absolute;
+  right: var(--space-4);
+  bottom: var(--space-4);
+}
+
+.transcript-message {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.transcript-message > textarea {
+  flex: 1;
+  min-width: 0;
+}
+
+.edit-diff {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}

@@ -18,6 +18,12 @@ export interface Question {
   choices: string[];
 }
 
+// A message the user wrote to a running session.
+export interface Interjection {
+  text: string;
+  at: string;
+}
+
 export interface Run {
   id: string;
   item_id: string;
@@ -44,6 +50,12 @@ export interface Run {
   overrides: GateOverride[];
   input_tokens: number;
   output_tokens: number;
+  // The steps the agent took, as JSON; read with read_transcript.
+  transcript: string;
+  interjections: Interjection[];
+  // The run this one retries, empty for a first attempt.
+  retry_of: string;
+  attempt: number;
 }
 
 // A report's Next when the stage waits on the user.
@@ -101,6 +113,9 @@ export interface StageRun {
   cost_usd: number;
   gates: GateMark[];
   questions: Question[];
+  attempt: number;
+  // Whether it failed or was stopped in a way another attempt can fix.
+  retryable: boolean;
 }
 
 // The gates a run went through, the ones that were not checked left out.
@@ -245,6 +260,7 @@ export interface RunSummary {
   gates_passed_over: number;
   gates_run: number;
   error: string;
+  attempt: number;
 }
 
 export interface CostTotal {

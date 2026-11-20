@@ -48,6 +48,13 @@ export interface StartOptions {
   model?: string;
 }
 
+export interface RetryOptions {
+  // A model for the retry alone.
+  model?: string;
+  // Discards the failed run first, so the retry starts from where that run started and is not told how it ended.
+  clean?: boolean;
+}
+
 export interface RunnerStatus {
   settings: RunnerSettings;
   // The run under way, which holds the one run slot.
@@ -64,6 +71,12 @@ export interface RunnerMethods {
   // Starts a stage run in the background and gives back its id.
   start_run: (item_id: string, options: StartOptions) => Promise<string>;
   stop_run: (run_id: string) => void;
+  // Writes a message from the user into the run under way, which its agent reads after its current step.
+  interject_run: (run_id: string, text: string) => void;
+  // Halts the run's current step at once, leaving its session open for the user's next message.
+  interrupt_run: (run_id: string) => Promise<void>;
+  // Runs a failed or stopped run's stage again and gives back the new run's id.
+  retry_run: (run_id: string, options: RetryOptions) => Promise<string>;
   answer_run: (run_id: string, answers: string) => void;
   discard_run: (run_id: string) => Promise<void>;
   // A draft item from free text, filled in by an agent for the user to check; nothing is saved.
@@ -127,6 +140,9 @@ export const runner_method_names = [
   "remove_repository",
   "start_run",
   "stop_run",
+  "interject_run",
+  "interrupt_run",
+  "retry_run",
   "answer_run",
   "discard_run",
   "describe_item",

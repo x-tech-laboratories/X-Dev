@@ -41,6 +41,9 @@ function fake_page(with_runner = true) {
     remove_repository: vi.fn(),
     start_run: vi.fn(async () => "run-1"),
     stop_run: vi.fn(),
+    interject_run: vi.fn(),
+    interrupt_run: vi.fn(async () => undefined),
+    retry_run: vi.fn(async () => "run-2"),
     answer_run: vi.fn(),
     discard_run: vi.fn(async () => undefined),
     link_issue: vi.fn(async () => ({ number: 12, opened: true })),
@@ -280,3 +283,123 @@ describe("an item's changes and runs", () => {
     await waitFor(() => expect(scrolled).toHaveBeenCalled());
   });
 });
+
+// A transcript part-way through a run: the stage input, thinking still streaming, an edit, a command that failed and a message not read yet.
+const live_transcript = JSON.stringify({
+  model: "claude-opus-5",
+  mode: "auto",
+  activity: "working",
+  dropped: 0,
+  entries: [
+    { kind: "user", role: "input", id: "u0", text: "You are running the Plan stage." },
+    { kind: "text", text: "Reading the **board** code.", streaming: false },
+    { kind: "tool", id: "t1", name: "Edit", input: { file_path: "src/board.ts", old_string: "old lane", new_string: "new lane" }, result: "Edited.", streaming: false },
+    { kind: "tool", id: "t2", name: "Bash", input: { command: "npm test" }, result: "1 failed", is_error: true, streaming: false },
+    { kind: "thinking", text: "The lanes need a key.", streaming: true },
+    { kind: "user", role: "interjection", id: "u1", text: "Keep lanes narrow.", pending: true },
+  ],
+});
+
+describe("a run as it happens", () => {
+  it("shows the transcript's steps, and stops, interrupts and steers the run", async () => {
+    const { database, store, runner } = fake_page();
+    const id = store.save_item(item);
+    const run = add_run(database, id, { state: "running", transcript: live_transcript });
+    render(<App />);
+    go(`#/items/${id}`);
+
+    const log = await screen.findByRole("log", { name: "Transcript" });
+    expect(within(log).getByText("board").tagName).toBe("STRONG");
+    expect(within(log).getByText("Thinking…")).toBeTruthy();
+    expect(within(log).getByText("src/board.ts", { selector: "code.transcript-line" })).toBeTruthy();
+    expect(within(log).getByText("new lane").closest("tr")!.className).toBe("tone-fill-good");
+    expect(within(log).getByText("failed")).toBeTruthy();
+    expect(within(log).getByText("Not read yet")).toBeTruthy();
+    expect(within(log).getByText("What Plan was given")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Interrupt" }));
+    await waitFor(() => expect(runner.interrupt_run).toHaveBeenCalledWith(run));
+    fireEvent.change(screen.getByLabelText("Message to the agent"), { target: { value: "Use one lane per repository." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(runner.interject_run).toHaveBeenCalledWith(run, "Use one lane per repository."));
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(runner.stop_run).toHaveBeenCalledWith(run));
+  });
+
+  it("offers a way back to the newest step once the reader scrolls up", async () => {
+    const { database, store } = fake_page();
+    const id = store.save_item(item);
+    add_run(database, id, { state: "running", transcript: live_transcript });
+    render(<App />);
+    go(`#/items/${id}`);
+
+    const log = await screen.findByRole("log", { name: "Transcript" });
+    Object.defineProperties(log, { scrollHeight: { value: 2000, configurable: true }, clientHeight: { value: 300, configurable: true } });
+    log.scrollTop = 0;
+    fireEvent.scroll(log);
+    fireEvent.click(await screen.findByRole("button", { name: "Jump to Latest" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Jump to Latest" })).toBeNull());
+  });
+
+  it("shows a halted run waiting for a message, and an old run's plain output", async () => {
+    const { database, store } = fake_page();
+    const id = store.save_item(item);
+    add_run(database, id, { state: "running", transcript: JSON.stringify({ entries: [], activity: "paused", model: "", mode: "", dropped: 3 }) });
+    add_run(database, id, { state: "done", output: "→ Bash: git status", started_at: "2026-11-20T09:00:00.000Z" });
+    render(<App />);
+    go(`#/items/${id}`);
+
+    expect(await screen.findByText("Halted, waiting for your message")).toBeTruthy();
+    expect(screen.getByText(/3 earlier steps were left out/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Interrupt" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("→ Bash: git status")).toBeTruthy();
+  });
+});
+
+describe("retrying a stage", () => {
+  it("retries a failed run, on another model when picked, or from clean after a confirm", async () => {
+    const { database, store, runner } = fake_page();
+    const id = store.save_item(item);
+    const run = add_run(database, id, { state: "failed", error: "Out of turns." });
+    render(<App />);
+    go(`#/items/${id}`);
+
+    fireEvent.change(await screen.findByLabelText("Model for this run"), { target: { value: "opus" } });
+    fireEvent.click(screen.getByRole("button", { name: "Retry Plan" }));
+    await waitFor(() => expect(runner.retry_run).toHaveBeenCalledWith(run, { model: "opus" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry from Clean…" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Discard and Retry" }));
+    await waitFor(() => expect(runner.retry_run).toHaveBeenCalledWith(run, { clean: true, model: "opus" }));
+  });
+
+  it("retries from the run's own panel and its menu", async () => {
+    const { database, store, runner } = fake_page();
+    const id = store.save_item(item);
+    const run = add_run(database, id, { state: "stopped", attempt: 2 });
+    render(<App />);
+    go(`#/items/${id}`);
+
+    expect(await screen.findByText(/Attempt 2 of Plan/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(runner.retry_run).toHaveBeenCalledWith(run, {}));
+    fireEvent.click(screen.getByRole("button", { name: "More ways to retry Plan" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Retry on Another Model…" }));
+    const dialog = await screen.findByRole("dialog", { name: /Retry Plan on Another Model/ });
+    fireEvent.change(within(dialog).getByLabelText("Model for this run"), { target: { value: "haiku" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(runner.retry_run).toHaveBeenCalledWith(run, { model: "haiku" }));
+  });
+
+  it("is not offered while a run waits only on its pull request's checks", async () => {
+    const { database, store } = fake_page();
+    const id = store.save_item(item);
+    add_run(database, id, { state: "failed", gates: [{ gate: "ci", outcome: "failed", findings: ["still running: test; X-Dev checks again when they finish"] }] });
+    render(<App />);
+    go(`#/items/${id}`);
+
+    expect(await screen.findByRole("button", { name: "Run Plan" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+});
+

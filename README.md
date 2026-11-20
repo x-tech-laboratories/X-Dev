@@ -36,8 +36,14 @@ What it does so far:
   one picked for that run; Review warns when its model is the one Implement's last run used.
   The run works in the item's own git worktree as a headless Claude Code session, one run at a time, and ends with a
   report the next run starts from. A run can ask you questions and wait, update the item's status sheet, and propose
-  new items into the Inbox. Every run keeps its transcript, tokens, cost and report; the latest can be stopped or
-  discarded, which puts the worktree, the status sheet and the stage back as they were. The **Runs** page lists every
+  new items into the Inbox. A run shows live on its item's page, and in a dialog from its card: the agent's thinking,
+  its text and each tool call with its input and result, an edit as a small diff, with its state, model, time, tokens
+  and cost. While it runs you can write to it, which the agent reads after its current step and which goes into the
+  status sheet's Decisions; **Interrupt** halts the current step and leaves the session waiting for your message, and
+  **Stop** ends the run. Every run keeps its transcript, tokens, cost and report; the latest can be discarded, which
+  puts the worktree, the status sheet and the stage back as they were. A run that failed or was stopped offers
+  **Retry**, which runs the stage again on the worktree as it was left and tells the agent how the last attempt ended,
+  or **Retry from Clean**, which discards the run first. The **Runs** page lists every
   run across items, filtered by words and state, under their tokens and cost summed by stage and by model; a row opens
   its item at that run. The item's page shows its branch's changes since its work started, file by file.
 - **Gates:** once a run hands in its report, X-Dev checks the change itself, by the gates the stage file names: the
@@ -112,7 +118,8 @@ folder, or type it in a browser; an item's first run makes its worktree there, a
 **Settings → Pipeline → Runs** sets how the agents' actions are approved (auto, checking each one, unless set), the
 `claude` program, and the small model that fills in described items.
 
-Each run is `claude -p` with the stage as its agent and the run's input on standard input. Its X-Dev tools, `ask_user`,
+Each run is `claude -p` with the stage as its agent, talking stream-json both ways: the run's input is its first message,
+your messages are written in as it runs, and its stream becomes the transcript. Its X-Dev tools, `ask_user`,
 `get_item_status`, `update_item_status` and `propose_item`, reach only its item: they are a small HTTP server on
 127.0.0.1 that the agent calls with curl, the address and the run's token in its environment, since Claude Code refuses
 a run's own MCP servers where a managed MCP config is present. A run's agent definition is kept in the profile folder

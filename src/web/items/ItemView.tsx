@@ -8,7 +8,6 @@ import { StateBadge, type Tone } from "@x-tech-laboratories/x-libs/web/react/bad
 import { Select } from "@x-tech-laboratories/x-libs/web/react/controls";
 import { confirm_dialog, Dialog } from "@x-tech-laboratories/x-libs/web/react/dialog";
 import { Facts, FormGroup, FormRow, PageHeading, Section, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout";
-import { FollowingOutput } from "@x-tech-laboratories/x-libs/web/react/following";
 import { Markdown } from "@x-tech-laboratories/x-libs/web/react/markdown";
 import { Loaded, use_resource } from "@x-tech-laboratories/x-libs/web/react/states";
 import { ComboField } from "@x-tech-laboratories/x-libs/web/react/suggestions";
@@ -17,31 +16,20 @@ import { format_count } from "@x-tech-laboratories/x-libs/web/format";
 
 import type { GateOutcome } from "../../shared/gates/model.ts";
 import { issue_link, status_sections, type Item, type StatusSheet } from "../../shared/items/model.ts";
-import { review_model_warning, type Run, type RunState } from "../../shared/runs/model.ts";
+import { can_retry } from "../../shared/runs/attempts.ts";
+import { review_model_warning, type Run } from "../../shared/runs/model.ts";
 import { done, model_suggestions, type Stage } from "../../shared/stages/model.ts";
 import { calls, data_watch, page, succeeds, use_data } from "../api.ts";
 import { DialogButtons } from "../forms.tsx";
+import { LiveRun, RunningButtons } from "../live/LiveRun.tsx";
+import { confirm_retry_from_clean, RetryButton } from "../live/RetryButton.tsx";
+import { read_transcript } from "../../shared/runs/transcript.ts";
 import { BranchChanges } from "./BranchChanges.tsx";
 import { link_issue } from "./index.tsx";
 import { PullRequestPanel } from "./PullRequestPanel.tsx";
+import { run_state_labels, stage_label } from "./words.ts";
 
 // ── Words ────────────────────────────────────────────────────────────────────
-
-export const run_state_labels: Record<RunState, [string, Tone]> = {
-  running: ["Running", "info"],
-  waiting: ["Waiting for answers", "warn"],
-  done: ["Done", "good"],
-  failed: ["Failed", "bad"],
-  stopped: ["Stopped", "none"],
-  discarded: ["Discarded", "none"],
-};
-
-export function stage_label(stages: Stage[], id: string): string {
-  if (id === done) return "Done";
-  if (id === "proposed") return "Proposed";
-  if (id === "needs-input") return "Needs input";
-  return stages.find((stage) => stage.id === id)?.label ?? id;
-}
 
 const gate_labels: Record<GateOutcome, [string, Tone]> = {
   passed: ["Passed", "good"],
@@ -115,6 +103,10 @@ function RunControls({ item, stages, runs, busy }: { item: Item; stages: Stage[]
   const [model, set_model] = useState("");
   const stage = stages.find((each) => each.id === stage_id);
   const warning = review_model_warning(stage_id, model.trim() || stage?.model || "", runs);
+  const chosen_model = model.trim() ? { model: model.trim() } : {};
+  // The stage's latest run, which the primary button retries when it failed or was stopped.
+  const latest = runs.find((run) => run.stage === stage_id && run.state !== "discarded");
+  const retryable = latest && can_retry(latest) ? latest : undefined;
   if (!runner) return <p className="muted">Runs start from the desktop app, whose background process holds the checkouts and runs the agents.</p>;
   if (item.closed_at) return <p className="muted">This item is closed.</p>;
   if (item.stage === "proposed") return <p className="muted">Take this proposal from the inbox before running it.</p>;
@@ -124,15 +116,20 @@ function RunControls({ item, stages, runs, busy }: { item: Item; stages: Stage[]
     <Toolbar>
       <Select<string> label="Stage to run" options={stages.map((each): [string, string] => [each.id, each.id === item.stage ? `${each.label} (current)` : each.label])} value={stage_id} on_change={set_stage_id} />
       <ComboField label="Model for this run" placeholder={stage?.model ? `${stage.model}, as the stage says` : "The stage's model"} value={model} options={model_suggestions} on_change={set_model} />
-      <button
-        type="button"
-        className="accent solid"
-        disabled={busy || !stage}
-        title={busy ? "A run is under way" : undefined}
-        onClick={() => void succeeds(() => runner.start_run(item.id, { stage: stage_id, ...(model.trim() ? { model: model.trim() } : {}) })).then(() => data_watch.bump())}
-      >
-        Run {stage?.label ?? "Stage"}
-      </button>
+      {retryable ? (
+        <>
+          <button type="button" className="accent solid" disabled={busy} title={busy ? "A run is under way" : "Run the stage again on the worktree as the last run left it, telling it what went wrong"} onClick={() => void succeeds(() => runner.retry_run(retryable.id, chosen_model)).then(() => data_watch.bump())}>
+            Retry {stage?.label ?? "Stage"}
+          </button>
+          <button type="button" disabled={busy} onClick={() => confirm_retry_from_clean(retryable.id, stage?.label ?? "the stage", chosen_model.model)}>
+            Retry from Clean…
+          </button>
+        </>
+      ) : (
+        <button type="button" className="accent solid" disabled={busy || !stage} title={busy ? "A run is under way" : undefined} onClick={() => void succeeds(() => runner.start_run(item.id, { stage: stage_id, ...chosen_model })).then(() => data_watch.bump())}>
+          Run {stage?.label ?? "Stage"}
+        </button>
+      )}
       {warning && <span className="tone-warn small" role="status">{warning}</span>}
     </Toolbar>
   );
@@ -233,11 +230,13 @@ interface RunCardProps {
   run: Run;
   stages: Stage[];
   is_latest: boolean;
+  // Whether it is its stage's latest run, which Retry is offered on.
+  is_stage_latest: boolean;
   // Whether the page was opened at this run, which shows its report.
   focused?: boolean;
 }
 
-function RunCard({ run, stages, is_latest, focused = false }: RunCardProps) {
+function RunCard({ run, stages, is_latest, is_stage_latest, focused = false }: RunCardProps) {
   const { runner } = page();
   const [editing_report, set_editing_report] = useState(false);
   const label = stage_label(stages, run.stage);
@@ -256,7 +255,7 @@ function RunCard({ run, stages, is_latest, focused = false }: RunCardProps) {
     <Section
       title={
         <>
-          {label} <StateBadge labels={run_state_labels} state={run.state} />
+          {run.attempt > 1 ? `Attempt ${run.attempt} of ${label}` : label} <StateBadge labels={run_state_labels} state={run.state} />
         </>
       }
       level={3}
@@ -264,11 +263,8 @@ function RunCard({ run, stages, is_latest, focused = false }: RunCardProps) {
       tools={
         runner && (
           <>
-            {(run.state === "running" || run.state === "waiting") && (
-              <button type="button" onClick={() => void succeeds(() => runner.stop_run(run.id))}>
-                Stop
-              </button>
-            )}
+            <RunningButtons run={run} can_interrupt={read_transcript(run.transcript).activity === "working"} />
+            {is_stage_latest && can_retry(run) && <RetryButton run={run} stage_label={label} />}
             {is_latest && run.state !== "running" && run.state !== "discarded" && (
               <button type="button" className="danger" onClick={discard}>
                 Discard
@@ -307,8 +303,8 @@ function RunCard({ run, stages, is_latest, focused = false }: RunCardProps) {
           )}
         </FormGroup>
       )}
-      <FormGroup summary="Transcript" open={run.state === "running"}>
-        <FollowingOutput text={run.output || "Nothing yet."} active={run.state === "running"} toggle />
+      <FormGroup summary="Transcript" open={run.state === "running" || focused}>
+        <LiveRun run={run} stage_label={label} is_latest={is_stage_latest} standalone={false} />
       </FormGroup>
       {editing_report && <ReportDialog run={run} on_close={() => set_editing_report(false)} />}
     </Section>
@@ -371,7 +367,7 @@ export function ItemView({ id, run_id }: { id: string; run_id?: string }) {
             <PullRequestPanel item={found} />
             <NotesSection key={found.notes} item={found} />
             <Section title="Runs">
-              {run_list.length === 0 ? <p className="muted">No runs yet.</p> : run_list.map((run) => <div key={run.id} id={`run-${run.id}`}><RunCard run={run} stages={all_stages} is_latest={run.id === latest?.id} focused={run.id === run_id} /></div>)}
+              {run_list.length === 0 ? <p className="muted">No runs yet.</p> : run_list.map((run) => <div key={run.id} id={`run-${run.id}`}><RunCard run={run} stages={all_stages} is_latest={run.id === latest?.id} is_stage_latest={run.id === run_list.find((each) => each.stage === run.stage && each.state !== "discarded")?.id} focused={run.id === run_id} /></div>)}
             </Section>
             <BranchChanges item={found} runs={run_list} />
           </>

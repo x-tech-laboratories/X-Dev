@@ -33,6 +33,9 @@ function fake_page({ running = false } = {}) {
   const runner = {
     get_runner: vi.fn(() => ({ settings: runner_setting_defaults, running_run_id: running ? "busy" : null })),
     start_run: vi.fn(async () => "run-1"),
+    retry_run: vi.fn(async () => "run-2"),
+    stop_run: vi.fn(),
+    interrupt_run: vi.fn(async () => undefined),
     answer_run: vi.fn(),
     discard_run: vi.fn(async () => undefined),
     list_run_changes: vi.fn(async (ids: string[]) => Object.fromEntries(ids.map((id) => [id, { additions: 18, deletions: 2 }]))),
@@ -336,3 +339,62 @@ describe("the board", () => {
     expect(within(swimlanes).getByText("1 failed")).toBeTruthy();
   });
 });
+
+describe("a card's live run", () => {
+  it("watches a running run in a dialog, and interrupts or stops it from the card", async () => {
+    const { database, store, runner } = fake_page({ running: true });
+    const id = store.save_item({ title: "Swimlanes", repository: "x-tech-laboratories/X-Dev", stage: "implement" });
+    const transcript = JSON.stringify({ entries: [{ kind: "text", text: "Writing the lanes." }], activity: "working", model: "claude-opus-5", mode: "auto", dropped: 0 });
+    const run_id = add_run(database, id, "implement", { state: "running", transcript, input_tokens: 1200, output_tokens: 300 });
+    render(<App />);
+
+    const found = await card("Swimlanes");
+    fireEvent.click(within(found).getByRole("button", { name: "Interrupt" }));
+    await waitFor(() => expect(runner.interrupt_run).toHaveBeenCalledWith(run_id));
+    fireEvent.click(within(found).getByRole("button", { name: "Watch…" }));
+    const dialog = await screen.findByRole("dialog", { name: /Implement Transcript/ });
+    expect(await within(dialog).findByText("Writing the lanes.")).toBeTruthy();
+    expect(within(dialog).getByText("claude-opus-5")).toBeTruthy();
+    expect(within(dialog).getByText("1,200 read, 300 written")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(runner.stop_run).toHaveBeenCalledWith(run_id));
+  });
+
+  it("retries a failed run from its card, on another model, or from clean", async () => {
+    const { database, store, runner } = fake_page();
+    const id = store.save_item({ title: "Swimlanes", repository: "x-tech-laboratories/X-Dev", stage: "implement" });
+    const run_id = add_run(database, id, "implement", { state: "failed", error: "Out of turns.", attempt: 2 });
+    render(<App />);
+
+    const found = await card("Swimlanes");
+    expect(within(found).getByText("Failed, attempt 2")).toBeTruthy();
+    fireEvent.click(within(found).getByRole("button", { name: "Retry Implement on Swimlanes" }));
+    await waitFor(() => expect(runner.retry_run).toHaveBeenCalledWith(run_id, {}));
+
+    fireEvent.click(within(found).getByRole("button", { name: "Model…" }));
+    const dialog = await screen.findByRole("dialog", { name: /Retry Implement on Another Model/ });
+    fireEvent.change(within(dialog).getByLabelText("Model for this run"), { target: { value: "sonnet" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(runner.retry_run).toHaveBeenCalledWith(run_id, { model: "sonnet" }));
+
+    fireEvent.click(within(found).getByRole("button", { name: "More for Swimlanes" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Retry Implement from Clean…" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Discard and Retry" }));
+    await waitFor(() => expect(runner.retry_run).toHaveBeenCalledWith(run_id, { clean: true }));
+  });
+
+  it("opens a finished run's transcript from the card's menu", async () => {
+    const { database, store } = fake_page();
+    const id = store.save_item({ title: "Swimlanes", repository: "x-tech-laboratories/X-Dev", stage: "implement" });
+    add_run(database, id, "implement", { state: "done", output: "→ Bash: git status" });
+    render(<App />);
+
+    fireEvent.click(within(await card("Swimlanes")).getByRole("button", { name: "More for Swimlanes" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Open Transcript" }));
+    const dialog = await screen.findByRole("dialog", { name: /Implement Transcript/ });
+    expect(await within(dialog).findByText("→ Bash: git status")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+});
+

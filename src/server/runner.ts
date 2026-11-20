@@ -11,7 +11,7 @@ import { run_program } from "@x-tech-laboratories/x-libs/agent/programs";
 import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 
 import { check_item, is_repository, issue_link, item_kinds, repository_of_remote, read_status, type Item, type ItemInput, type ItemKind } from "../shared/items/model.ts";
-import { answers_input, append_output, branch_name_of, build_run_input, needs_input, parse_report, read_stream_line, type Run, type StreamResult } from "../shared/runs/model.ts";
+import { answers_input, branch_name_of, build_run_input, needs_input, parse_report, type Run, type StreamResult } from "../shared/runs/model.ts";
 import { read_runner_settings, type ItemDraft, type RunnerMethods, type RunnerSettings, type StartOptions } from "../shared/runs/runner.ts";
 import { add_run_tokens, finish_run, find_run, insert_run, latest_report, runs_in_state, set_item_fields, update_run } from "../shared/runs/store.ts";
 import { read_item_diff, read_run_changes } from "./item_diff.ts";
@@ -20,6 +20,10 @@ import { done, type Stage, type StagesMethods } from "../shared/stages/model.ts"
 import { find_or_open_issue, github_account, github_sign_out, start_github_sign_in } from "./github.ts";
 import type { GitHubSync } from "./github_sync.ts";
 import { tools_guide, type RunTools } from "./run_tools.ts";
+import { start_live_run, type LiveRun } from "./live_run.ts";
+import { can_retry, previous_attempt_section } from "../shared/runs/attempts.ts";
+import { steer_decisions } from "../shared/runs/steering.ts";
+import type { UserRole } from "../shared/runs/transcript.ts";
 
 // ── Options ──────────────────────────────────────────────────────────────────
 
@@ -48,9 +52,6 @@ export interface Runner {
   // Stops the run under way, if any, as the daemon stops.
   stop_current: () => void;
 }
-
-// How often the transcript is saved while a run streams.
-const save_every_ms = 1000;
 
 // ── Git ──────────────────────────────────────────────────────────────────────
 
@@ -86,7 +87,7 @@ async function ensure_worktree(repository_folder: string, branch: string): Promi
 
 export function create_runner({ database, stages, run_tools, folder, after_write, github, now = () => new Date().toISOString() }: RunnerOptions): Runner {
   const settings_file = join(folder, "runner.json");
-  let current: { run_id: string; controller: AbortController; finished: Promise<void> } | null = null;
+  let current: { run_id: string; controller: AbortController; finished: Promise<void>; live: LiveRun } | null = null;
   const asked = new Set<string>();
   // What git said of each run's main checkout when it started, for the worktree gate.
   const checkouts_before = new Map<string, string>();
@@ -149,7 +150,7 @@ export function create_runner({ database, stages, run_tools, folder, after_write
   }
 
   // A report that is good still waits on the stage's gates; any that fail hold the item until rerun or passed over.
-  async function check_gates(run: Run, stage: Stage, worktree: string, report: string, next: string, cost: number): Promise<void> {
+  async function check_gates(run: Run, stage: Stage, worktree: string, report: string, next: string): Promise<void> {
     const item = item_of(run.item_id);
     const end_commit = await git(["rev-parse", "HEAD"], worktree);
     const repository_folder = read_settings().repositories[item.repository];
@@ -166,32 +167,31 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       ...(github ? { gh_program: github.program() } : {}),
     });
     const failed = gates.filter((gate) => gate.outcome === "failed");
-    update_run(database(), run.id, { report, next, end_commit, gates, cost_usd: cost, ended_at: now() });
+    update_run(database(), run.id, { report, next, end_commit, gates, ended_at: now() });
     if (failed.length) update_run(database(), run.id, { state: "failed", error: `${failed.length === 1 ? "A gate" : `${failed.length} gates`} failed: ${failed.map((gate) => gate.gate).join(", ")}. Run the stage again, or pass a gate over with a reason.` });
     else finish_run(database(), find_run(database(), run.id));
     after_write();
   }
 
   // What the run does once its session ends: wait for answers, check its report and gates, or fail.
-  async function settle(run_id: string, stage: Stage, worktree: string, result: StreamResult | null, exit_text: string, cost: number, aborted: boolean): Promise<void> {
+  async function settle(run_id: string, stage: Stage, worktree: string, result: StreamResult | null, exit_text: string, aborted: boolean): Promise<void> {
     const run = find_run(database(), run_id);
-    const total = run.cost_usd + cost;
-    if (aborted) return change(run_id, { state: "stopped", cost_usd: total, ended_at: now() });
-    if (asked.delete(run_id)) return change(run_id, { state: "waiting", cost_usd: total });
-    if (!result || result.is_error) return change(run_id, { state: "failed", cost_usd: total, ended_at: now(), error: result?.text || exit_text || "The agent stopped without a result." });
+    if (aborted) return change(run_id, { state: "stopped", ended_at: now() });
+    if (asked.delete(run_id)) return change(run_id, { state: "waiting" });
+    if (!result || result.is_error) return change(run_id, { state: "failed", ended_at: now(), error: result?.text || exit_text || "The agent stopped without a result." });
     const report = parse_report(result.text);
-    if (!report) return change(run_id, { state: "failed", cost_usd: total, ended_at: now(), error: "The agent ended without a report block naming the next stage." });
+    if (!report) return change(run_id, { state: "failed", ended_at: now(), error: "The agent ended without a report block naming the next stage." });
     const known = new Set([...stages.list_stages().stages.map((stage) => stage.id), done, needs_input]);
-    if (!known.has(report.next)) return change(run_id, { state: "failed", cost_usd: total, ended_at: now(), report: report.text, error: `The report names ${report.next} next, which is no stage.` });
+    if (!known.has(report.next)) return change(run_id, { state: "failed", ended_at: now(), report: report.text, error: `The report names ${report.next} next, which is no stage.` });
     try {
-      await check_gates(run, stage, worktree, report.text, report.next, total);
+      await check_gates(run, stage, worktree, report.text, report.next);
     } catch (error) {
-      change(run_id, { state: "failed", cost_usd: total, ended_at: now(), report: report.text, next: report.next, error: `The gates could not run: ${error instanceof Error ? error.message : String(error)}` });
+      change(run_id, { state: "failed", ended_at: now(), report: report.text, next: report.next, error: `The gates could not run: ${error instanceof Error ? error.message : String(error)}` });
     }
   }
 
-  // Runs one turn of a run's session in the background: a new session, or a resumed one with the user's answers.
-  function launch(run: Run, stage: Stage, worktree: string, input: string, resume: boolean): void {
+  // Runs one session of a run in the background, its input kept open for the user's messages: a new session, or a resumed one with the user's answers.
+  function launch(run: Run, stage: Stage, worktree: string, first_message: { role: UserRole; text: string }, resume: boolean): void {
     const settings = read_settings();
     const token = run_tools.grant({ run_id: run.id, item_id: run.item_id, max_proposals: stage.max_proposals });
     const files = write_session_files(run, stage);
@@ -206,58 +206,55 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       "--output-format",
       "stream-json",
       "--verbose",
+      "--include-partial-messages",
+      "--input-format",
+      "stream-json",
+      "--replay-user-messages",
       "--permission-mode",
       settings.permission_mode,
     ];
     // The run's own tools are reached through these, never through an MCP config, which a managed one refuses.
     const env = { ...process.env, X_DEV_RUN_URL: run_tools.url(), X_DEV_RUN_TOKEN: token };
     const controller = new AbortController();
-    let output = run.output;
-    let result: StreamResult | null = null;
-    let pending = "";
-    let last_save = 0;
-    const save = (force: boolean) => {
-      if (!force && Date.now() - last_save < save_every_ms) return;
-      last_save = Date.now();
-      change(run.id, { output });
-    };
-    const sink = {
-      write: (chunk: Buffer | string) => {
-        pending += chunk.toString();
-        const lines = pending.split("\n");
-        pending = lines.pop() ?? "";
-        for (const line of lines) {
-          const read = read_stream_line(line);
-          output = append_output(output, read.lines);
-          if (read.result) result = read.result;
-        }
-        save(false);
-      },
-    };
-    const finished = run_program(argv, { cwd: worktree, env, stdin: input, stdout: "show", stderr: "keep", out: sink, signal: controller.signal, own_group: true })
-      .then(
-        async (exit) => {
-          save(true);
-          add_run_tokens(database(), run.id, (result as StreamResult | null)?.tokens);
-          const exit_text = exit.exit_code === 127 ? `${settings.claude_program} is not installed or not on the PATH` : exit.stderr.trim().split("\n").slice(-5).join("\n");
-          await settle(run.id, stage, worktree, result, exit.exit_code === 0 ? "" : exit_text, (result as StreamResult | null)?.cost_usd ?? 0, controller.signal.aborted);
-        },
-        (error: unknown) => change(run.id, { state: "failed", ended_at: now(), error: error instanceof Error ? error.message : String(error) }),
-      )
+    const live = start_live_run({
+      run,
+      argv,
+      cwd: worktree,
+      env,
+      signal: controller.signal,
+      first_message,
+      save: (changes) => change(run.id, changes),
+      add_tokens: (tokens) => add_run_tokens(database(), run.id, tokens),
+      asked: () => asked.has(run.id),
+      now,
+    });
+    const finished = live.finished
+      .then(async (end) => {
+        const exit_text = end.exit_code === 127 ? `${settings.claude_program} is not installed or not on the PATH` : end.stderr.trim().split("\n").slice(-5).join("\n");
+        await settle(run.id, stage, worktree, end.result, end.exit_code === 0 ? "" : exit_text, controller.signal.aborted);
+      })
+      .catch((error: unknown) => change(run.id, { state: "failed", ended_at: now(), error: error instanceof Error ? error.message : String(error) }))
       .finally(() => {
         run_tools.revoke(token);
         if (current?.run_id === run.id) current = null;
         checkouts_before.delete(run.id);
         void github?.sync_item(run.item_id, { find_pull_request: true });
       });
-    current = { run_id: run.id, controller, finished };
+    current = { run_id: run.id, controller, finished, live };
+  }
+
+  // The session of the run under way, refusing a run that is not.
+  function live_of(run_id: string): LiveRun {
+    if (current?.run_id !== run_id || !current.live.is_open()) throw new Error("that run is not under way");
+    return current.live;
   }
 
   function require_free(): void {
     if (current) throw new Error("a run is under way; wait for it or stop it first");
   }
 
-  async function start_run(item_id: string, options: StartOptions): Promise<string> {
+  // Starts a stage run; a retry is linked to the run it retries and, unless from clean, told how that attempt ended.
+  async function start_run(item_id: string, options: StartOptions, retry?: { of: Run; tell_previous: boolean }): Promise<string> {
     require_free();
     const item = item_of(item_id);
     if (item.closed_at) throw new Error("that item is closed");
@@ -270,7 +267,8 @@ export function create_runner({ database, stages, run_tools, folder, after_write
     if (!item.branch) set_item_fields(database(), item.id, { branch });
     const start_commit = await git(["rev-parse", "HEAD"], worktree);
     const checkout_before = await checkout_state(repository_folder);
-    const input = `${build_run_input({ item: { ...item, branch }, stage_label: stage.label, worktree, issue_url: issue_link(item), latest_report: latest_report(database(), item.id), notes: item.notes })}\n\n${tools_guide()}`;
+    const previous = retry?.tell_previous ? `${previous_attempt_section(retry.of)}\n\n` : "";
+    const input = `${build_run_input({ item: { ...item, branch }, stage_label: stage.label, worktree, issue_url: issue_link(item), latest_report: latest_report(database(), item.id), notes: item.notes })}\n\n${previous}${tools_guide()}`;
     require_free();
     const run_id = insert_run(database(), {
       item_id: item.id,
@@ -282,12 +280,13 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       status_before: JSON.stringify(item.status),
       input,
       started_at: now(),
+      ...(retry ? { retry_of: retry.of.id, attempt: retry.of.attempt + 1 } : {}),
     });
     // A run sent to another stage moves the item there.
     set_item_fields(database(), item.id, { stage: stage.id });
     after_write();
     checkouts_before.set(run_id, checkout_before);
-    launch(find_run(database(), run_id), stage, worktree, input, false);
+    launch(find_run(database(), run_id), stage, worktree, { role: "input", text: input }, false);
     return run_id;
   }
 
@@ -326,6 +325,26 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       }
       current.controller.abort();
     },
+    interject_run: (run_id, text) => {
+      const message = text.trim();
+      if (!message) throw new Error("write the message first");
+      live_of(run_id).send_message(message);
+      const run = find_run(database(), run_id);
+      const item = item_of(run.item_id);
+      // The next stage reads in the status sheet how the user steered this one.
+      const status = steer_decisions(item.status, stage_of(run.stage).label, message);
+      if (status) set_item_fields(database(), item.id, { status: JSON.stringify(status) });
+      change(run_id, { interjections: [...run.interjections, { text: message, at: now() }] });
+    },
+    interrupt_run: (run_id) => live_of(run_id).interrupt(),
+    retry_run: async (run_id, options) => {
+      const run = find_run(database(), run_id);
+      if (!can_retry(run)) throw new Error(run.state === "failed" ? "that run waits on its pull request's checks, which clear by themselves" : "only a failed or stopped run can be retried");
+      const latest = database().prepare("SELECT id FROM runs WHERE item_id = ? AND stage = ? AND state != 'discarded' ORDER BY started_at DESC LIMIT 1").get(run.item_id, run.stage) as { id: string } | undefined;
+      if (latest?.id !== run_id) throw new Error("only the stage's latest run can be retried");
+      if (options.clean) await methods.discard_run(run_id);
+      return start_run(run.item_id, { stage: run.stage, ...(options.model ? { model: options.model } : {}) }, { of: run, tell_previous: !options.clean });
+    },
     answer_run: (run_id, answers) => {
       require_free();
       const run = find_run(database(), run_id);
@@ -334,7 +353,7 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       const item = item_of(run.item_id);
       const worktree = join(folder_of(item.repository), ".claude", "worktrees", item.branch.replace(/^worktree-/, ""));
       change(run_id, { state: "running", answers: `${run.answers}${run.answers ? "\n\n" : ""}${answers.trim()}` });
-      launch(find_run(database(), run_id), stage_of(run.stage), worktree, answers_input(run.questions, answers), true);
+      launch(find_run(database(), run_id), stage_of(run.stage), worktree, { role: "answers", text: answers_input(run.questions, answers) }, true);
     },
     discard_run: async (run_id) => {
       const run = find_run(database(), run_id);
