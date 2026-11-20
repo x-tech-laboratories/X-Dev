@@ -36,6 +36,10 @@ export interface Item {
   source_run_id: string | null;
   created_at: string;
   closed_at: string | null;
+  // The pull request as JSON, read with read_pull_request in github.ts; empty before there is one.
+  pull_request: string;
+  // What X-Dev last mirrored to the issue as JSON, read with read_mirror in github.ts.
+  github: string;
 }
 
 export interface ItemInput {

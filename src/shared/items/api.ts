@@ -20,6 +20,11 @@ export const items_api = {
     params: [{ name: "include_closed", schema: { type: "boolean", description: "Whether closed items are listed too; false when left out." }, optional: true }],
   },
   get_item: { description: "One item with its status sheet.", params: [{ name: "id", schema: id_of("item") }] },
+  get_item_github: {
+    description:
+      "What X-Dev keeps in step with an item's GitHub issue: its pull request with the state (open, closed or merged) and each check's outcome (pass, fail, pending, skipping or cancel), the stage labels and report comments it last posted, and why the last attempt to reach GitHub failed, if it did.",
+    params: [{ name: "id", schema: id_of("item") }],
+  },
   save_item: {
     description: "Adds an item, or changes the one with the id given. Gives back its id.",
     params: [

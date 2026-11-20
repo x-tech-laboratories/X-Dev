@@ -37,6 +37,14 @@ What it does so far:
   folder's git remote, looks beside the known checkouts itself when the agent found none, and adds the checkout to
   Repositories when the item is saved. An item saved without an issue number, or a proposal taken from the inbox, is
   linked to the open issue that matches its title, or gets a new issue with its title and body.
+- **GitHub:** once a run ends, the desktop app mirrors the item to its issue through `gh`: a `stage:<id>` label for the
+  stage it is at, `stage:needs-input` while a run waits on you, each report as a comment starting with
+  `<!-- stage-handoff -->` (edited when the report is, marked when the run is discarded), the status sheet at the top of
+  the issue's body between `<!-- x-dev-status -->` markers, and the issue closed once the item is through Close. It
+  finds the pull request Review opens from the item's branch and shows it with its checks on the item page, looking
+  again every half minute while checks run. Nothing that fails here fails a run: the item page shows what went wrong,
+  and the next run, the next look or **Sync to GitHub** tries again. Reports and sheets that hold a secret are not
+  posted.
 
 ## Running it
 
@@ -113,7 +121,8 @@ npx x-dev-check --base origin/main commits secrets leftovers
 
 It prints each gate's result and findings and exits with 1 when any fails. X-Dev's own CI runs it on every pull
 request. A gate that cannot check a repository, such as `tests-pass` where there is no vitest, says so as not checked
-rather than passing; `ci` waits until X-Dev tracks pull requests.
+rather than passing. `ci` reads the pull request's checks through `gh`, so only the desktop app's runs check it: checks
+still running hold the item, and it moves on by itself once they pass.
 
 ## The desktop app in the background
 

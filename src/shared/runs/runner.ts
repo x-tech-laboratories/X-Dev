@@ -69,6 +69,8 @@ export interface RunnerMethods {
   describe_item: (text: string) => Promise<ItemDraft>;
   // Links an item with no issue to an open one that matches it, or opens one.
   link_issue: (item_id: string) => Promise<IssueLink>;
+  // Brings the item's issue labels, report comments, status sheet and pull request up to date, giving back what failed.
+  sync_github: (item_id: string) => Promise<string>;
   get_github: () => Promise<GitHubAccount>;
   // Starts signing gh into GitHub in the browser and gives back the code to enter there.
   sign_in_github: () => Promise<GitHubSignIn>;
@@ -109,6 +111,7 @@ export const runner_method_names = [
   "discard_run",
   "describe_item",
   "link_issue",
+  "sync_github",
   "get_github",
   "sign_in_github",
   "sign_out_github",

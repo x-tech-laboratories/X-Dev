@@ -28,6 +28,7 @@ import { mcp_instructions, without_secrets } from "../shared/mcp.ts";
 import type { DeviceMethods } from "../shared/page_api.ts";
 import { bind_methods, dev_api, is_read_only, needs_upgrade, open_store, sync_engine } from "../shared/store.ts";
 import { register_dev_calls } from "../server/calls.ts";
+import { create_github_sync } from "../server/github_sync.ts";
 import { create_run_tools } from "../server/run_tools.ts";
 import { create_runner } from "../server/runner.ts";
 import { create_stage_files } from "../server/stage_files.ts";
@@ -139,7 +140,14 @@ const after_run_write = (): void => {
 };
 
 const run_tools = create_run_tools({ database: () => database, after_write: after_run_write, on_asked: (run_id) => runner.mark_asked(run_id) });
-const runner = create_runner({ database: () => database, stages: stage_files.methods, run_tools, folder: profile, after_write: after_run_write });
+// Each item's issue follows its runs, through the gh program the runner's settings name.
+const github = create_github_sync({
+  database: () => database,
+  program: () => runner.methods.get_runner().settings.gh_program,
+  after_write: after_run_write,
+  stage_label: (id) => stage_files.methods.list_stages().stages.find((stage) => stage.id === id)?.label ?? id,
+});
+const runner = create_runner({ database: () => database, stages: stage_files.methods, run_tools, folder: profile, after_write: after_run_write, github });
 
 // ── Desktop settings ─────────────────────────────────────────────────────────
 
@@ -215,6 +223,7 @@ async function main(): Promise<void> {
     clearInterval(unused_timer);
     stop_watching_stages();
     runner.stop_current();
+    github.stop();
     sync.stop();
     backing_up.stop();
     void daemon
@@ -241,6 +250,7 @@ async function main(): Promise<void> {
   stop_watching_stages = stage_files.watch();
   await run_tools.start();
   runner.recover();
+  github.start();
 
   // Without "Keep running in the background", the daemon stops a while after its last window has gone.
   let unused_since = Date.now();

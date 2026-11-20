@@ -19,5 +19,12 @@ export const migrations: DrizzleMigration[] = [
       "ALTER TABLE `items` ADD `source_item_id` text;",
       "ALTER TABLE `items` ADD `source_run_id` text;"
     ]
+  },
+  {
+    "name": "20261120045231_github",
+    "statements": [
+      "ALTER TABLE `items` ADD `pull_request` text DEFAULT '' NOT NULL;",
+      "ALTER TABLE `items` ADD `github` text DEFAULT '{}' NOT NULL;"
+    ]
   }
 ];

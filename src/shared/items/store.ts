@@ -7,6 +7,7 @@ import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
 
 import { define_feature, drizzle_of, new_id } from "../feature.ts";
 import { items_api } from "./api.ts";
+import { read_mirror, read_pull_request, type ItemGitHub } from "./github.ts";
 import { migrations } from "./migrations/index.ts";
 import { check_item, merge_status, read_status, type Item, type ItemInput, type ItemKind } from "./model.ts";
 import { items, items_tables } from "./schema.ts";
@@ -38,6 +39,10 @@ export const items_feature = define_feature({
       return rows.map(as_item);
     },
     get_item: (database: SqlDatabase, id: string): Item => find_item(database, id),
+    get_item_github: (database: SqlDatabase, id: string): ItemGitHub => {
+      const item = find_item(database, id);
+      return { pull_request: read_pull_request(item.pull_request), mirror: read_mirror(item.github) };
+    },
     save_item: (database: SqlDatabase, input: ItemInput, now = new Date().toISOString()): string => {
       const { id, ...fields } = check_item(input);
       if (id) {

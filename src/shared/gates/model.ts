@@ -1,6 +1,10 @@
 // The gates: checks X-Dev runs itself after a stage, not left to the agent. Each check here works on what changed,
 // already read from git, so the runner and the x-dev-check command share them and the tests need no repository.
 
+// ── Imports ──────────────────────────────────────────────────────────────────
+
+import type { PullRequest } from "../items/github.ts";
+
 // ── Shapes ───────────────────────────────────────────────────────────────────
 
 export type GateOutcome = "passed" | "failed" | "warning" | "skipped";
@@ -272,4 +276,18 @@ export function check_dependencies(before: Manifest | null, after: Manifest | nu
 // Whether the run brought the status sheet up to date.
 export function check_status(before: string, after: string): GateResult {
   return before === after ? { gate: "status", outcome: "failed", findings: ["the run did not update the status sheet"] } : passed("status");
+}
+
+// ── Pull request checks ──────────────────────────────────────────────────────
+
+// Whether the pull request's checks pass; none open for the branch is not checked, and checks still running hold it.
+export function check_ci(pull_request: PullRequest | null): GateResult {
+  if (!pull_request) return skipped("ci", "no pull request is open for the branch");
+  if (pull_request.state === "closed") return { gate: "ci", outcome: "failed", findings: [`pull request #${pull_request.number} was closed without merging`] };
+  if (!pull_request.checks.length) return skipped("ci", `pull request #${pull_request.number} has no checks`);
+  const failed = pull_request.checks.filter((check) => check.bucket === "fail" || check.bucket === "cancel");
+  if (failed.length) return { gate: "ci", outcome: "failed", findings: failed.map((check) => `${check.workflow ? `${check.workflow} / ` : ""}${check.name} ${check.bucket === "fail" ? "failed" : "was cancelled"}`) };
+  const pending = pull_request.checks.filter((check) => check.bucket === "pending");
+  if (pending.length) return { gate: "ci", outcome: "failed", findings: [`still running: ${pending.map((check) => check.name).join(", ")}; X-Dev checks again when they finish`] };
+  return passed("ci");
 }

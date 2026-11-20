@@ -41,6 +41,7 @@ function fake_page(with_runner = true) {
     answer_run: vi.fn(),
     discard_run: vi.fn(async () => undefined),
     link_issue: vi.fn(async () => ({ number: 12, opened: true })),
+    sync_github: vi.fn(async () => ""),
     get_github: vi.fn(async () => ({ signed_in: true, account: "someone", problem: "" })),
     sign_in_github: vi.fn(async () => ({ code: "ABCD-1234", url: "https://github.com/login/device" })),
     sign_out_github: vi.fn(async () => undefined),

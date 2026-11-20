@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, matchesGlob } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { read_changes, read_commits, run_gates } from "../src/server/gates.ts";
 import { repository_of_remote } from "../src/shared/items/model.ts";
@@ -23,6 +23,7 @@ import {
   gates_cleared,
   read_thresholds,
   type ChangedFile,
+  type GateResult,
 } from "../src/shared/gates/model.ts";
 
 function changed(path: string, lines: string[], status: ChangedFile["status"] = "modified", first_line = 1): ChangedFile {
@@ -198,5 +199,43 @@ describe("reading what changed", () => {
       ["ci", "skipped"],
       ["vibes", "skipped"],
     ]);
+  });
+});
+
+describe("the ci gate", () => {
+  const fake_gh = join(import.meta.dirname, "fixtures", "fake_gh.mjs");
+
+  afterEach(() => {
+    delete process.env.FAKE_GH_DATA;
+  });
+
+  // A fake GitHub with pull request #12 from the branch, its one check in the state given.
+  function fake_pull_request(bucket: string | null, offline = false): void {
+    const file = join(mkdtempSync(join(tmpdir(), "x-dev-github-")), "github.json");
+    const pulls = [{ number: 12, url: "https://github.com/owner/repo/pull/12", state: "OPEN", isDraft: false, head: "worktree-item-7" }];
+    writeFileSync(file, JSON.stringify({ offline, issues: {}, labels: [], pulls, checks: bucket ? { "12": [{ name: "test", bucket, link: "", workflow: "CI" }] } : {}, next_comment_id: 1, calls: [] }));
+    process.env.FAKE_GH_DATA = file;
+  }
+
+  async function ci_on_branch(branch: string): Promise<GateResult> {
+    const { folder, base, git } = make_repository();
+    git("switch", "-q", "-c", branch);
+    return (await run_gates(["ci"], { worktree: folder, base, repository: "owner/repo", paths: [], specified_tests: [], gh_program: fake_gh }))[0]!;
+  }
+
+  it("reads the checks of the pull request from the worktree's branch", async () => {
+    fake_pull_request("pass");
+    expect((await ci_on_branch("worktree-item-7")).outcome).toBe("passed");
+    fake_pull_request("fail");
+    expect((await ci_on_branch("worktree-item-7")).findings).toEqual(["CI / test failed"]);
+    fake_pull_request(null);
+    expect((await ci_on_branch("worktree-item-7")).findings).toEqual(["pull request #12 has no checks"]);
+  });
+
+  it("is not checked without a pull request, and holds the item when GitHub cannot be reached", async () => {
+    fake_pull_request("pass");
+    expect((await ci_on_branch("other-branch")).outcome).toBe("skipped");
+    fake_pull_request("pass", true);
+    expect((await ci_on_branch("worktree-item-7")).findings[0]).toContain("GitHub could not be reached");
   });
 });

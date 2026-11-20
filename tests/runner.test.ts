@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { create_github_sync, type GitHubSync } from "../src/server/github_sync.ts";
 import { create_run_tools, type RunTools } from "../src/server/run_tools.ts";
 import { checkout_names, checkout_of_reply, create_runner, draft_of_reply, find_checkout, match_repository, search_roots, type Runner } from "../src/server/runner.ts";
 import { create_stage_files } from "../src/server/stage_files.ts";
@@ -35,7 +36,7 @@ afterEach(async () => {
   await run_tools?.stop();
 });
 
-async function setup() {
+async function setup(github?: (database: DatabaseSync) => GitHubSync) {
   const database = new DatabaseSync(":memory:");
   open_store(database);
   const store = bind_methods(() => database, () => undefined);
@@ -43,7 +44,7 @@ async function setup() {
   stages.add_default_stages();
   run_tools = create_run_tools({ database: () => database, after_write: () => undefined, on_asked: (run_id) => runner!.mark_asked(run_id) });
   await run_tools.start();
-  runner = create_runner({ database: () => database, stages, run_tools, folder: mkdtempSync(join(tmpdir(), "x-dev-runner-")), after_write: () => undefined });
+  runner = create_runner({ database: () => database, stages, run_tools, folder: mkdtempSync(join(tmpdir(), "x-dev-runner-")), after_write: () => undefined, ...(github ? { github: github(database) } : {}) });
   const checkout = make_checkout();
   runner.methods.set_runner_setting("claude_program", fake_claude);
   runner.methods.set_repository(repository, checkout);
@@ -223,6 +224,46 @@ describe("linking an item's issue", () => {
     expect(await runner.methods.link_issue(id)).toEqual({ number: 5, opened: false });
     expect(store.get_item(id).issue_number).toBe(5);
     expect(await runner.methods.link_issue(numbered)).toEqual({ number: 9, opened: false });
+  });
+});
+
+describe("mirroring runs to GitHub", () => {
+  afterEach(() => {
+    delete process.env.FAKE_GH_DATA;
+  });
+
+  // A fake GitHub holding the item's issue #7, and the runner's sync reaching it through the fake gh.
+  async function setup_with_github() {
+    const file = join(mkdtempSync(join(tmpdir(), "x-dev-github-")), "github.json");
+    writeFileSync(file, JSON.stringify({ issues: { "7": { state: "OPEN", labels: [], body: "", comments: [] } }, labels: [], pulls: [], checks: {}, next_comment_id: 100, calls: [] }));
+    process.env.FAKE_GH_DATA = file;
+    let sync: GitHubSync | null = null;
+    const context = await setup((database) => (sync = create_github_sync({ database: () => database, program: () => fake_gh, after_write: () => undefined })));
+    const issue = () => (JSON.parse(readFileSync(file, "utf8")) as { issues: Record<string, { labels: string[]; comments: { body: string }[] }> }).issues["7"]!;
+    return { ...context, sync: sync!, issue };
+  }
+
+  it("posts the report and moves the stage label once a run ends, and marks the comment of a discarded run", async () => {
+    const { store, runner, item, sync, issue } = await setup_with_github();
+    const id = item("Plan it. STATUS");
+    const run_id = await runner.methods.start_run(id, {});
+    await runner.idle();
+    await sync.sync_item(id);
+
+    expect(issue().comments).toEqual([{ id: 100, body: expect.stringContaining("## Plan handoff") }]);
+    expect(issue().labels).toEqual(["stage:specify"]);
+
+    await runner.methods.discard_run(run_id);
+    await sync.sync_item(id);
+    expect(issue().comments[0]!.body).toContain("run was discarded");
+    expect(issue().labels).toEqual(["stage:plan"]);
+    expect(await runner.methods.sync_github(id)).toBe("");
+    expect(store.get_item_github(id).mirror.problem).toBe("");
+  });
+
+  it("is refused where the runner has no GitHub sync", async () => {
+    const { runner, item } = await setup();
+    await expect(runner.methods.sync_github(item("Plan it."))).rejects.toThrow("does not reach GitHub");
   });
 });
 
