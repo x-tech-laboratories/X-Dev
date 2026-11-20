@@ -5,7 +5,7 @@ import { join, matchesGlob } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { complete_arguments, default_gates, run_x_dev_check } from "../src/cli/check.ts";
+import { run_x_dev_check } from "../src/cli/check.ts";
 import { checkout_state, run_gates } from "../src/server/gates.ts";
 import { repository_of_remote } from "../src/shared/items/model.ts";
 import { check_scope, check_size, check_status, check_tests_kept, gates_cleared, type ChangedFile, type GateResult } from "../src/shared/gates/model.ts";
@@ -127,7 +127,7 @@ describe("running the gates on a real repository", () => {
     expect(outcomes(results)).toEqual({ commits: "failed", secrets: "failed", leftovers: "failed", comments: "failed", coverage: "failed", "x-libs": "failed", dependencies: "failed", size: "warning", scope: "failed", "tests-kept": "failed" });
     const findings = Object.fromEntries(results.map((result) => [result.gate, result.findings]));
     const short = git("rev-parse", "--short=7", "HEAD");
-    expect(findings.commits).toEqual([`${short} "Added logging with ${token}" is not a Conventional Commit`, `${short} has no Assisted-by trailer`]);
+    expect(findings.commits).toEqual([`${short}'s subject is not a Conventional Commit`, `${short} has no Assisted-by trailer`]);
     expect(findings.secrets).toEqual([`${short}'s message holds a GitHub token`, "the report holds a GitHub token"]);
     expect(findings.leftovers).toEqual(["a.ts:2 logs to the console"]);
     expect(findings.comments).toEqual(["a.ts:4 has a comment 2 lines long"]);
@@ -217,6 +217,15 @@ describe("the gates that run the repository's own tools", () => {
     expect(results[0]!.findings).toEqual(["the tests for what changed fail:", "stand-in vitest"]);
   }, 30_000);
 
+  it("runs the tests changed since the base x-dev-check worked out", async () => {
+    const { folder, base } = make_tooled_project();
+    writeFileSync(join(folder, "node_modules", "vitest", "cli.sh"), '#!/bin/sh\necho "$@"\nexit 1\n', { mode: 0o755 });
+    const out = { text: "", write(more: string) { this.text += more; } };
+
+    expect(await run_x_dev_check(["--base", base, "tests-pass"], { cwd: folder, env: {}, out, err: { write: () => undefined } })).toBe(1);
+    expect(out.text).toContain(`run --changed ${base} --passWithNoTests`);
+  }, 30_000);
+
   it("runs the type check and lint scripts, naming the one that fails", async () => {
     const { folder, base } = make_tooled_project();
 
@@ -249,11 +258,13 @@ describe("x-dev-check", () => {
     const { folder, base, git } = make_repository();
     const err = capture();
     expect(await run_x_dev_check(["--base", base, "vibes"], { cwd: folder, env: {}, out: capture().stream, err: err.stream })).toBe(2);
-    expect(err.text()).toContain("no check called vibes");
+    expect(err.text()).toContain("x-dev-check: no check called vibes");
+    expect(err.text()).toContain("Usage: x-dev-check");
 
-    expect(await complete_arguments(["commits"], folder)).toEqual({ args: ["commits"], base: "" });
     git("update-ref", "refs/remotes/origin/main", base);
-    expect(await complete_arguments([], folder)).toEqual({ args: ["--base", base, ...default_gates], base });
+    const out = capture();
+    expect(await run_x_dev_check(["size"], { cwd: folder, env: {}, out: out.stream, err: capture().stream })).toBe(0);
+    expect(out.text()).toContain("✓ size: passed");
   });
 });
 
