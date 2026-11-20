@@ -1,7 +1,7 @@
-// One item as a board card, merged with the latest run of the stage it is at: its repository and issue, title,
+// One item as a card on the board, merged with the latest run of the stage it is at: its repository and issue, title,
 // that run's state, summary, model, changed lines, cost, age and gates, a waiting run's question, a dot per stage for
-// the way it came once it has runs, Run with a model picker, and a menu to open it, send it back or discard its last
-// run. It draws only what goes inside the board's card; the board opens it on a click.
+// the way it came, Run with a model picker, and a menu to open it, send it back or discard its last run. It knows
+// nothing of the board around it.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
