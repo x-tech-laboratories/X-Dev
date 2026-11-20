@@ -145,22 +145,12 @@ button.result-row {
   width: 100%;
 }
 
-/* The inbox sits tight around its heading and its proposals, scrolling once there are more than a few. */
-.inbox-panel {
-  flex: none;
-  gap: var(--space-2);
+/* The inbox keeps a gap above and below in the list, where no fills layout spaces the page's blocks by its gap. */
+main:not(:has(> .fills)) > .inbox-panel {
   margin-block: var(--space-5);
-  padding-block: var(--space-3);
 }
 
-.inbox-panel > .panel-head {
-  position: static;
-  min-height: var(--row-height);
-  margin-block: 0;
-  padding-block: 0;
-}
-
-/* Each proposal on one line, its buttons at the far end. */
+/* Each proposal on one line, its buttons at the far end, scrolling once there are more than a few. */
 .inbox {
   display: grid;
   gap: var(--space-1);
@@ -184,11 +174,6 @@ button.result-row {
   min-width: 0;
 }
 
-/* A switch in the toolbar is as tall as the controls beside it, so the row lines up. */
-.toolbar > .check {
-  min-height: var(--control-height);
-}
-
 /* Each gate on its own line, its findings indented under it. */
 .gates {
   display: grid;
@@ -201,25 +186,6 @@ button.result-row {
 .sign-in-code {
   font-family: var(--font-family-monospace);
   font-size: var(--text-h3);
-}
-
-/* The board page fills the main pane without scrolling it; the board under the toolbar and inbox scrolls instead. */
-body.contained main:has(> .board) {
-  display: flex;
-  flex-direction: column;
-  padding-bottom: 0;
-  overflow: hidden;
-}
-
-body.contained main > .board {
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: 0 0 var(--space-5);
-}
-
-/* A card whose run failed or waits for answers gets an edge on its left, coloured by Halon's tone-edge class. */
-.board-card:is(.tone-edge-bad, .tone-edge-warn) {
-  border-left: 3px solid;
 }
 
 /* An item's card, its facts on small lines under a title of up to three lines. */

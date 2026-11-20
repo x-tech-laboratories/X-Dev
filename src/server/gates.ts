@@ -49,7 +49,7 @@ function has_vitest(manifest: Scripts | null): boolean {
 
 export interface GateContext {
   worktree: string;
-  // The commit the run started from, or the branch point for x-dev-check.
+  // The commit the run started from; x-dev-check leaves it empty and its gates read the change's own base.
   base: string;
   repository: string;
   // What the stage may change; empty for anything.
@@ -96,7 +96,7 @@ async function worktree_gate(context: GateContext): Promise<GateResult> {
 
 async function tests_pass_gate(change: Change, context: GateContext): Promise<GateResult> {
   if (!has_vitest(manifest_of(change))) return skipped("tests-pass", "the repository does not test with vitest");
-  const run = await tool(["npx", "vitest", "run", "--changed", context.base, "--passWithNoTests"], context.worktree);
+  const run = await tool(["npx", "vitest", "run", "--changed", change.base ?? context.base, "--passWithNoTests"], context.worktree);
   return run.ok ? passed("tests-pass") : { gate: "tests-pass", outcome: "failed", findings: ["the tests for what changed fail:", ...run.tail] };
 }
 
