@@ -16,6 +16,7 @@ import type { NoticeKind } from "./runs/notices.ts";
 import type { RunnerMethods } from "./runs/runner.ts";
 import type { StagesMethods } from "./stages/model.ts";
 import type { DevMethods } from "./store.ts";
+import type { WebhookMethods } from "./webhooks/model.ts";
 
 // ── Names ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ export const runner_api_name = "x_dev_runner";
 export const connections_api_name = "x_dev_connections";
 export const remote_access_api_name = "x_dev_remote";
 export const backups_api_name = "x_dev_backups";
+export const webhooks_api_name = "x_dev_github_webhook";
 
 // ── Device calls ─────────────────────────────────────────────────────────────
 
@@ -62,6 +64,8 @@ export interface PageApi {
   stages?: Client<StagesMethods>;
   // The runner, on a daemon that runs the agents in its computer's checkouts, for an admin when it is elsewhere.
   runner?: Client<RunnerMethods>;
+  // GitHub's webhooks on the host the page works on, for an admin.
+  github_webhook?: Client<WebhookMethods>;
   // Set when the daemon runs on the computer showing the page, so a folder can be picked in its own dialog.
   daemon_is_here?: boolean;
   // The daemons a desktop or phone app can switch between, This computer among them on the desktop.

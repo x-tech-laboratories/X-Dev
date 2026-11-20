@@ -99,14 +99,14 @@ describe("the runner over the network", () => {
   it("tells the page whether it may run agents", async () => {
     const { admin, user } = await start(fake_runner());
 
-    expect((await admin({ method: "GET", url: "/api/abilities" })).json()).toEqual({ runner: true, stages: true });
-    expect((await user({ method: "GET", url: "/api/abilities" })).json()).toEqual({ runner: false, stages: false });
+    expect((await admin({ method: "GET", url: "/api/abilities" })).json()).toEqual({ runner: true, stages: true, webhooks: false });
+    expect((await user({ method: "GET", url: "/api/abilities" })).json()).toEqual({ runner: false, stages: false, webhooks: false });
   });
 
   it("has no runner where none runs agents", async () => {
     const { admin } = await start();
 
-    expect((await admin({ method: "GET", url: "/api/abilities" })).json()).toEqual({ runner: false, stages: true });
+    expect((await admin({ method: "GET", url: "/api/abilities" })).json()).toEqual({ runner: false, stages: true, webhooks: false });
     expect((await admin({ method: "POST", url: "/api/runner/get_runner", payload: [] })).statusCode).toBe(404);
   });
 

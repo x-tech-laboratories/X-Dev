@@ -44,8 +44,11 @@ export interface GitHubSyncOptions {
   // How often, in seconds, the poller looks again: while checks run, and otherwise.
   checks_interval?: number;
   idle_interval?: number;
+  // Whether a repository's webhooks tell of its changes, so the poller looks at it only every idle_interval.
+  quiet_repository?: (repository: string) => boolean;
   // The time, for tests.
   now?: () => string;
+  clock?: () => number;
 }
 
 export interface SyncOptions {
@@ -56,7 +59,7 @@ export interface SyncOptions {
 export interface GitHubSync {
   // Brings one item's issue and pull request up to date; gives back what went wrong, or empty, and never throws.
   sync_item: (item_id: string, options?: SyncOptions) => Promise<string>;
-  // Brings every open item up to date, as the poller does.
+  // Brings every open item up to date, as the poller does, a repository heard by webhook only every idle_interval.
   sync_all: () => Promise<void>;
   // The gh program, for the ci gate.
   program: () => string;
@@ -71,9 +74,11 @@ const default_idle_interval = 300;
 
 type ItemRow = typeof items.$inferSelect;
 
-export function create_github_sync({ database, program, after_write, stage_label = (id) => id, checks_interval = default_checks_interval, idle_interval = default_idle_interval, now = () => new Date().toISOString() }: GitHubSyncOptions): GitHubSync {
+export function create_github_sync({ database, program, after_write, stage_label = (id) => id, checks_interval = default_checks_interval, idle_interval = default_idle_interval, quiet_repository = () => false, now = () => new Date().toISOString(), clock = Date.now }: GitHubSyncOptions): GitHubSync {
   // One sync at a time per item, so a comment is never posted twice.
   const queues = new Map<string, Promise<unknown>>();
+  // When the poller last looked at each repository heard by webhook.
+  const polled_at = new Map<string, number>();
 
   function item_row(id: string): ItemRow | undefined {
     return drizzle_of(database()).select().from(items).where(eq(items.id, id)).get();
@@ -210,15 +215,25 @@ export function create_github_sync({ database, program, after_write, stage_label
       .all();
   }
 
+  // A repository heard by webhook is polled only once its idle interval has passed, as a fallback for a lost delivery.
+  function is_due(repository: string): boolean {
+    if (!quiet_repository(repository)) return true;
+    return clock() - (polled_at.get(repository) ?? 0) >= idle_interval * 1000;
+  }
+
   async function sync_all(): Promise<void> {
-    for (const row of items_to_sync()) await sync_item(row.id);
+    const rows = items_to_sync();
+    const due = new Set(rows.map((row) => row.repository).filter(is_due));
+    for (const repository of due) if (quiet_repository(repository)) polled_at.set(repository, clock());
+    for (const row of rows) if (due.has(row.repository)) await sync_item(row.id);
   }
 
   const watched: Watched = {
     id: "github",
     settings: { interval: idle_interval, job_poll: checks_interval },
     cycle: sync_all,
-    busy: () => items_to_sync().some((row) => checks_pending(read_pull_request(row.pull_request))),
+    // Checks running in a repository heard by webhook need no quick polling, since their end is delivered.
+    busy: () => items_to_sync().some((row) => checks_pending(read_pull_request(row.pull_request)) && !quiet_repository(row.repository)),
   };
   const poller = new CyclePoller(() => [watched], { error: (details, message) => console.error(message, details.err) });
 

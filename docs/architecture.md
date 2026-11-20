@@ -140,6 +140,16 @@ put there, kept on the item as JSON in the `github` column, so a look with nothi
 pull request and its checks are the `pull_request` column. A run held only by its `ci` gate is checked again whenever
 the checks change, and moves on once they pass.
 
+`src/server/github_webhooks.ts` takes GitHub's deliveries at `POST /api/github/webhook`, an open path of `build_app`
+registered through X-Libs `register_webhook_route` so the signature is checked over the raw body. `targets_of` in
+`src/shared/webhooks/model.ts` keeps only the repository and the pull requests, branches and issues a delivery names;
+`src/shared/webhooks/store.ts` keeps each repository's latest in the synced `github_deliveries` table. On the daemon,
+`create_webhook_sync` finds the items they name (`items_named`) and runs `sync_item` for each through a `Debouncer`,
+and `catch_up`, called after each sync from the server, does the same for deliveries the server took. The GitHub
+sync's `quiet_repository` slows polling for a repository heard from lately. The secret and the public address are
+files beside the database or in the profile; the admin's calls are `webhooks_api`, under `/api/github_webhook/` and as
+MCP tools, and the desktop page reaches them through the `x_dev_github_webhook` bridge.
+
 ## Items page and board
 
 `src/web/items/index.tsx` holds the items page: one read of the items and one of the stages, the toolbar and filters,

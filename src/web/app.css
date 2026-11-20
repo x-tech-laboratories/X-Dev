@@ -342,3 +342,9 @@ main:not(:has(> .fills)) > .inbox-panel {
   text-align: right;
   user-select: none;
 }
+
+/* A long payload URL breaks anywhere rather than widening a phone's page. */
+.webhook-url {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}

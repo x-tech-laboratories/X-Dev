@@ -12,10 +12,11 @@ import { items_feature } from "./items/store.ts";
 import { runs_feature } from "./runs/store.ts";
 import { is_read_only } from "./page_api.ts";
 import { settings_feature } from "./settings.ts";
+import { webhooks_feature } from "./webhooks/store.ts";
 
 // ── Features ─────────────────────────────────────────────────────────────────
 
-export const features = [settings_feature, items_feature, runs_feature, history_feature];
+export const features = [settings_feature, items_feature, runs_feature, webhooks_feature, history_feature];
 
 export const sync_engine = create_sync_engine({ tables: features.flatMap((feature) => feature.tables), after_apply: forget_synced_changes });
 
