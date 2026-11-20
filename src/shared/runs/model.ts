@@ -18,6 +18,15 @@ export interface Question {
   choices: string[];
 }
 
+// A file the user put back as it was when a run or the item's work started.
+export interface Revert {
+  path: string;
+  // "run" for the run's start, "item" for the item's.
+  scope: string;
+  base: string;
+  at: string;
+}
+
 // A message the user wrote to a running session.
 export interface Interjection {
   text: string;
@@ -62,6 +71,9 @@ export interface Run {
   allowed: string[];
   // The tool waiting for the user's approval, empty when none waits.
   awaiting: string;
+  // Each file the user marked reviewed, with the fingerprint of the content they saw.
+  reviewed: Record<string, string>;
+  reverts: Revert[];
 }
 
 // A report's Next when the stage waits on the user.

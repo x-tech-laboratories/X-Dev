@@ -107,7 +107,7 @@ describe("the server's MCP endpoint", () => {
     const tools = (await admin("tools/list")).tools as { name: string; description: string; annotations: { readOnlyHint: boolean } }[];
     const by_name = new Map(tools.map((tool) => [tool.name, tool]));
     for (const name of [...Object.keys(dev_api), ...Object.keys(stages_api), ...Object.keys(runner_api)]) expect(by_name.has(name), name).toBe(true);
-    for (const name of ["list_items", "get_run", "list_proposals", "list_run_summaries", "get_item_diff", "list_stages", "get_stage", "get_runner"]) expect(by_name.get(name)!.annotations.readOnlyHint, name).toBe(true);
+    for (const name of ["list_items", "get_run", "list_proposals", "list_run_summaries", "get_changes", "get_file_change", "list_stages", "get_stage", "get_runner"]) expect(by_name.get(name)!.annotations.readOnlyHint, name).toBe(true);
     for (const name of ["add_item", "start_run", "answer_run", "discard_run", "save_stage", "add_repository", "override_gate", "send_item_back"]) expect(by_name.get(name)!.annotations.readOnlyHint, name).toBe(false);
     for (const name of ["start_run", "answer_run"]) expect(by_name.get(name)!.description).toContain("starts an AI coding agent");
     expect(by_name.get("discard_run")!.description).toContain("with its user's rights");

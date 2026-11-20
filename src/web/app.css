@@ -297,25 +297,7 @@ main:not(:has(> .fills)) > .inbox-panel {
   gap: var(--space-6);
 }
 
-/* A diff: the changed files listed, then each file's lines in the fixed-width font, scrolling sideways when long. */
-.diff-view {
-  display: grid;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-.diff-summary {
-  margin: 0;
-}
-
-.diff-files {
-  display: grid;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
+/* A diff's lines in the fixed-width font, scrolling sideways when long. */
 .diff-path {
   overflow-wrap: anywhere;
 }
@@ -400,7 +382,8 @@ main:not(:has(> .fills)) > .inbox-panel {
 }
 
 .transcript-user {
-  padding-left: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-default);
 }
 
 .transcript-jump {
@@ -425,6 +408,71 @@ main:not(:has(> .fills)) > .inbox-panel {
   gap: var(--space-1);
   margin-top: var(--space-2);
 }
+
+/* The changes view: the file tree beside the picked file's diff, one above the other on a narrow window. */
+.changes-view {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.changes-panes {
+  display: grid;
+  grid-template-columns: minmax(11rem, 16rem) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .changes-panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.file-tree {
+  display: grid;
+  gap: var(--space-3);
+  max-height: 36rem;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.changes-file {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* Side by side, each half takes the same width and its long lines wrap rather than push the other half away. */
+.diff-split {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.diff-number-column {
+  width: 3.5rem;
+}
+
+.diff-split .diff-text,
+.diff-split .diff-text code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-word {
+  border-radius: var(--radius-small);
+}
+
+/* A permission request's reason box takes the row, its buttons under it. */
+.transcript-answer {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.transcript-answer > input {
+  width: 100%;
 
 /* A long payload URL breaks anywhere rather than widening a phone's page. */
 .webhook-url {

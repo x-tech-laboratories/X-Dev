@@ -2,7 +2,7 @@
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
-import type { DiffFile } from "../diff/parse.ts";
+import type { DiffFile, DiffFileStatus } from "../diff/parse.ts";
 import type { ItemInput } from "../items/model.ts";
 import type { RunMode } from "./modes.ts";
 import type { PermissionDecision } from "./transcript.ts";
@@ -103,25 +103,74 @@ export interface RunnerMethods {
   // Starts signing gh into GitHub in the browser and gives back the code to enter there.
   sign_in_github: () => Promise<GitHubSignIn>;
   sign_out_github: () => Promise<void>;
-  // What the item's branch changed since its work started, read from its worktree.
-  get_item_diff: (item_id: string) => Promise<ItemDiff>;
+  // The files changed since the run started, or since the item's work started, read from the item's worktree.
+  get_changes: (item_id: string, scope: ChangeScope, run_id: string) => Promise<ChangeSet>;
+  // One changed file's diff with every unchanged line kept.
+  get_file_change: (item_id: string, scope: ChangeScope, run_id: string, path: string) => Promise<FileChange>;
+  // Every file in the item's worktree, changed or not, by path.
+  list_files: (item_id: string) => Promise<WorktreeFiles>;
+  // One file's text in the item's worktree, read-only; binary and very large files come back without it.
+  get_file: (item_id: string, path: string) => Promise<WorktreeFile>;
+  // Puts one file back as it was when the scope started, noting it in the run and the status sheet.
+  revert_file: (item_id: string, scope: ChangeScope, run_id: string, path: string) => Promise<void>;
   // The lines each finished run added and removed, by run id, for the runs whose worktree is on this computer.
   list_run_changes: (run_ids: string[]) => Promise<Record<string, LineCounts>>;
 }
 
-export interface ItemDiff {
-  // The commit the changes are counted from; empty when there is nothing to read.
+// Whether changes count from the run's start or the item's.
+export type ChangeScope = "run" | "item";
+
+export interface ChangedFile {
+  path: string;
+  // The path before a rename; the same as path otherwise.
+  old_path: string;
+  status: DiffFileStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  // Names the file's content now, so a reviewed mark clears once it changes.
+  fingerprint: string;
+}
+
+export interface ChangeSet {
+  // The commit the changes count from; empty when there is nothing to read.
   base: string;
-  files: DiffFile[];
-  // Whether the diff ran past what is shown, its later files left out.
-  truncated: boolean;
+  // The run the scope belongs to: the one asked for, else the item's latest.
+  run_id: string;
+  files: ChangedFile[];
   // Why there is nothing to show, such as no worktree yet; empty otherwise.
   problem: string;
+}
+
+export interface WorktreeFiles {
+  paths: string[];
+  // Whether there were more files than are listed.
+  truncated: boolean;
+}
+
+export interface WorktreeFile {
+  path: string;
+  size: number;
+  // Whether the path is a symlink to another file inside the worktree.
+  symlink: boolean;
+  // Null when the file is not shown, as reason says.
+  text: string | null;
+  reason: "" | "binary" | "too_large";
+}
+
+export interface FileChange {
+  // Null when git shows no lines for it, such as a binary file.
+  file: DiffFile | null;
+  // Whether the file was too long to show whole.
+  truncated: boolean;
 }
 
 export interface LineCounts {
   additions: number;
   deletions: number;
+  // How many files changed, and how many of them the user marked reviewed as they are now.
+  files: number;
+  reviewed: number;
 }
 
 // A new item; its repository is owner/name or the folder of a checkout, and a checkout given is added to Repositories.
@@ -183,6 +232,10 @@ export const runner_method_names = [
   "get_github",
   "sign_in_github",
   "sign_out_github",
-  "get_item_diff",
+  "get_changes",
+  "get_file_change",
+  "revert_file",
+  "list_files",
+  "get_file",
   "list_run_changes",
 ] as const satisfies readonly (keyof RunnerMethods)[];

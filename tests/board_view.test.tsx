@@ -38,7 +38,9 @@ function fake_page({ running = false } = {}) {
     interrupt_run: vi.fn(async () => undefined),
     answer_run: vi.fn(),
     discard_run: vi.fn(async () => undefined),
-    list_run_changes: vi.fn(async (ids: string[]) => Object.fromEntries(ids.map((id) => [id, { additions: 18, deletions: 2 }]))),
+    list_run_changes: vi.fn(async (ids: string[]) => Object.fromEntries(ids.map((id) => [id, { additions: 18, deletions: 2, files: 7, reviewed: 3 }]))),
+    get_changes: vi.fn(async (_item_id: string, _scope: string, run_id: string) => ({ base: "abc", run_id, files: [{ path: "src/lanes.ts", old_path: "src/lanes.ts", status: "added", additions: 1, deletions: 0, binary: false, fingerprint: "f" }], problem: "" })),
+    get_file_change: vi.fn(async () => ({ file: null, truncated: false })),
     get_run: vi.fn(),
     get_github: vi.fn(async () => ({ signed_in: true, account: "someone", problem: "" })),
   };
@@ -409,6 +411,24 @@ describe("a card's run waiting for approval", () => {
     const found = await card("Swimlanes");
     expect(within(found).getByText("Waiting for approval")).toBeTruthy();
     expect(board_card("Swimlanes").className).toContain("tone-edge-warn");
+  });
+});
+
+describe("a card's changes", () => {
+  it("counts the files reviewed, and shows the run's changes beside its transcript", async () => {
+    const { database, store, runner } = fake_page();
+    const id = store.save_item({ title: "Swimlanes", repository: "x-tech-laboratories/X-Dev", stage: "implement" });
+    const run_id = add_run(database, id, "implement", { state: "done", output: "done" });
+    render(<App />);
+
+    const found = await card("Swimlanes");
+    expect(await within(found).findByText("3 of 7 reviewed")).toBeTruthy();
+    fireEvent.click(within(found).getByRole("button", { name: "More for Swimlanes" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Open Transcript" }));
+    const dialog = await screen.findByRole("dialog", { name: /Implement Transcript/ });
+    fireEvent.click(within(await within(dialog).findByRole("navigation", { name: "Show" })).getByRole("button", { name: "Changes" }));
+    expect(await within(dialog).findByText("lanes.ts")).toBeTruthy();
+    expect(runner.get_changes).toHaveBeenCalledWith(id, "run", run_id);
   });
 });
 

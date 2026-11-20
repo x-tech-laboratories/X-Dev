@@ -61,6 +61,9 @@ export const runs = sqliteTable(
     permission_mode: text().notNull().default(""),
     allowed: text().notNull().default("[]"),
     awaiting: text().notNull().default(""),
+    // The files marked reviewed, each with the fingerprint of the content seen, and the files put back, as JSON.
+    reviewed: text().notNull().default("{}"),
+    reverts: text().notNull().default("[]"),
   },
   (table) => [index("runs_by_item").on(table.item_id, table.started_at)],
 );

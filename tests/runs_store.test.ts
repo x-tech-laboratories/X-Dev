@@ -174,4 +174,14 @@ describe("runs", () => {
     ]);
     expect(store.list_run_summaries()[0]).toMatchObject({ attempt: 2 });
   });
+
+  it("mark a file reviewed with the fingerprint seen, and take the mark off", () => {
+    const { database, store } = open_methods();
+    const run = add_run(database, store.save_item(item), "2026-11-20T10:00:00.000Z");
+
+    store.set_file_reviewed(run, "src/a.ts", "f1");
+    store.set_file_reviewed(run, "src/b.ts", "f2");
+    store.set_file_reviewed(run, "src/a.ts", "");
+    expect(store.get_run(run).reviewed).toEqual({ "src/b.ts": "f2" });
+  });
 });

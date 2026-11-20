@@ -41,5 +41,12 @@ export const migrations: DrizzleMigration[] = [
       "ALTER TABLE `runs` ADD `allowed` text DEFAULT '[]' NOT NULL;",
       "ALTER TABLE `runs` ADD `awaiting` text DEFAULT '' NOT NULL;"
     ]
+  },
+  {
+    "name": "20261120080042_reviews",
+    "statements": [
+      "ALTER TABLE `runs` ADD `reviewed` text DEFAULT '{}' NOT NULL;",
+      "ALTER TABLE `runs` ADD `reverts` text DEFAULT '[]' NOT NULL;"
+    ]
   }
 ];

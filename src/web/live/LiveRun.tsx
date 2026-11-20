@@ -10,7 +10,7 @@ import { format_count } from "@x-tech-laboratories/x-libs/web/format";
 import { Badge, StateBadge } from "@x-tech-laboratories/x-libs/web/react/badges";
 import { FollowingOutput } from "@x-tech-laboratories/x-libs/web/react/following";
 import { Select } from "@x-tech-laboratories/x-libs/web/react/controls";
-import { FormGroup, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout";
+import { FormGroup, Tabs, Toolbar } from "@x-tech-laboratories/x-libs/web/react/layout";
 
 import { can_retry } from "../../shared/runs/attempts.ts";
 import type { Run } from "../../shared/runs/model.ts";
@@ -20,6 +20,7 @@ import { read_transcript } from "../../shared/runs/transcript.ts";
 import { data_watch, page, succeeds } from "../api.ts";
 import { run_state_labels } from "../items/words.ts";
 import { TranscriptView } from "../transcript/TranscriptView.tsx";
+import { ChangesView, changes_key } from "../changes/ChangesView.tsx";
 import { RetryButton } from "./RetryButton.tsx";
 
 // ── Time ─────────────────────────────────────────────────────────────────────
@@ -115,6 +116,7 @@ interface LiveRunProps {
 
 export function LiveRun({ run, stage_label, is_latest, standalone = true }: LiveRunProps) {
   const { runner } = page();
+  const [tab, set_tab] = useState<"transcript" | "changes">("transcript");
   const transcript = read_transcript(run.transcript);
   const running = run.state === "running";
   const session_open = running && transcript.activity !== "ended";
@@ -161,24 +163,41 @@ export function LiveRun({ run, stage_label, is_latest, standalone = true }: Live
           </div>
         )
       )}
-      {run.transcript ? (
-        <TranscriptView
-          entries={transcript.entries}
-          dropped={transcript.dropped}
-          live={running}
-          empty_text="The agent has not started yet."
-          user_labels={{ input: `What ${stage_label} was given` }}
-          allow_for_run={page().daemon_is_here === true}
-          on_permission={runner && session_open ? (request_id, decision, message) => void succeeds(() => runner.answer_permission(run.id, request_id, decision, message)) : undefined}
+      {runner && (
+        <Tabs<"transcript" | "changes">
+          label="Show"
+          items={[
+            { id: "transcript", label: "Transcript" },
+            { id: "changes", label: "Changes" },
+          ]}
+          active={tab}
+          on_select={set_tab}
         />
-      ) : (
-        <FollowingOutput text={run.output || "Nothing yet."} active={running} toggle />
       )}
-      {runner && session_open && <MessageBox run_id={run.id} paused={paused} />}
-      {run.transcript && run.output && (
-        <FormGroup summary="Plain output">
-          <FollowingOutput text={run.output} active={running} />
-        </FormGroup>
+      {tab === "changes" ? (
+        <ChangesView item_id={run.item_id} runs={[run]} run_id={run.id} refresh_key={changes_key([run])} />
+      ) : (
+        <>
+          {run.transcript ? (
+            <TranscriptView
+              entries={transcript.entries}
+              dropped={transcript.dropped}
+              live={running}
+              empty_text="The agent has not started yet."
+              user_labels={{ input: `What ${stage_label} was given` }}
+              allow_for_run={page().daemon_is_here === true}
+              on_permission={runner && session_open ? (request_id, decision, message) => void succeeds(() => runner.answer_permission(run.id, request_id, decision, message)) : undefined}
+            />
+          ) : (
+            <FollowingOutput text={run.output || "Nothing yet."} active={running} toggle />
+          )}
+          {runner && session_open && <MessageBox run_id={run.id} paused={paused} />}
+          {run.transcript && run.output && (
+            <FormGroup summary="Plain output">
+              <FollowingOutput text={run.output} active={running} />
+            </FormGroup>
+          )}
+        </>
       )}
     </div>
   );

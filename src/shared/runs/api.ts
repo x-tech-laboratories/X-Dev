@@ -45,6 +45,10 @@ export const runs_api = {
     description: "Moves an item to another stage, usually an earlier one, so that stage is the one its next run takes; nothing is run and no run is undone.",
     params: [{ name: "item_id", schema: id_of("item") }, { name: "stage", schema: text("The stage's id, such as plan.") }],
   },
+  set_file_reviewed: {
+    description: "Marks a file the run changed as reviewed by the user, with the fingerprint of the content they looked at, so the mark clears once the file changes again; an empty fingerprint takes the mark off.",
+    params: [{ name: "run_id", schema: id_of("run") }, { name: "path", schema: text("The file's path in the worktree.") }, { name: "fingerprint", schema: text("The fingerprint the changes list gave for the file; empty to take the mark off.") }],
+  },
   save_item_notes: {
     description: "Sets the notes the item's next run is handed, such as answers, corrections or a change of scope.",
     params: [{ name: "item_id", schema: id_of("item") }, { name: "notes", schema: text("The notes; empty for none.") }],
@@ -158,7 +162,27 @@ export const runner_api: ApiSpec<RunnerMethods> = {
   get_github: { description: "Which GitHub account gh is signed into on the computer that runs the agents.", params: [] },
   sign_in_github: { description: "Starts signing gh in through GitHub's device page and gives back the code to enter there, from any browser.", params: [] },
   sign_out_github: { description: "Signs gh out of GitHub on the computer that runs the agents, for every program that uses it.", params: [], destructive: true },
-  get_item_diff: { description: "What the item's branch changed since its work started, file by file with added and removed lines, read from its worktree.", params: [{ name: "item_id", schema: id_of("item") }] },
+  get_changes: {
+    description: "Lists the files changed since a run started, or since the item's work started, read from the item's worktree with uncommitted and new files included: each file's path, its old path for a rename, whether it was added, changed, removed or renamed, its added and removed lines, and a fingerprint of its content now, which set_file_reviewed takes. Also gives the commit the changes count from and the run they belong to, or why there is nothing to read.",
+    params: [{ name: "item_id", schema: id_of("item") }, { name: "scope", schema: { type: "string", enum: ["run", "item"], description: "run for what the run changed since it started, item for everything since the item's work started." } }, { name: "run_id", schema: text("The run for the run scope, and whose reviewed marks apply; empty for the item's latest run.") }],
+  },
+  get_file_change: {
+    description: "One changed file's diff in the scope, as hunks of numbered lines with every unchanged line kept, so a reader can show it whole.",
+    params: [{ name: "item_id", schema: id_of("item") }, { name: "scope", schema: { type: "string", enum: ["run", "item"], description: "run for what the run changed since it started, item for everything since the item's work started." } }, { name: "run_id", schema: text("The run for the run scope; empty for the item's latest run.") }, { name: "path", schema: text("The file's path in the worktree, as get_changes lists it.") }],
+  },
+  list_files: {
+    description: "Lists every file in the item's worktree by path, changed or not: what git tracks there and new files it would track, ignored files, .git and node_modules left out, up to 20,000 paths.",
+    params: [{ name: "item_id", schema: id_of("item") }],
+  },
+  get_file: {
+    description: "Reads one file in the item's worktree, read-only: its size and text, or no text when it is binary or over a megabyte. A path that leads out of the worktree, by .., an absolute path or a symlink, or into .git or node_modules, is refused.",
+    params: [{ name: "item_id", schema: id_of("item") }, { name: "path", schema: text("The file's path in the worktree, as list_files gives it.") }],
+  },
+  revert_file: {
+    description: "Puts one changed file back as it was when the scope started: restored from that commit, or removed when the change added it. Refused while a run on the item is under way. The run and the item's status sheet note it, so later stages do not bring the change back.",
+    params: [{ name: "item_id", schema: id_of("item") }, { name: "scope", schema: { type: "string", enum: ["run", "item"], description: "run for what the run changed since it started, item for everything since the item's work started." } }, { name: "run_id", schema: text("The run for the run scope; empty for the item's latest run.") }, { name: "path", schema: text("The file's path in the worktree, as get_changes lists it.") }],
+    destructive: true,
+  },
   list_run_changes: {
     description: "The lines each finished run added and removed, by run id, for the runs whose worktree is on the computer that runs the agents.",
     params: [{ name: "run_ids", schema: { type: "array", items: { type: "string" }, description: "The runs' ids." } }],
