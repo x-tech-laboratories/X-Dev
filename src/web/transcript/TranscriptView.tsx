@@ -104,7 +104,7 @@ function UserMessage({ entry, labels }: { entry: UserEntry; labels: Record<UserR
     );
   }
   return (
-    <div className="transcript-step transcript-user tone-edge-good">
+    <div className="transcript-step transcript-user tone-fill-none">
       <div className="small muted">
         {labels[entry.role]} {entry.pending && <Badge tone="warn">Not read yet</Badge>}
       </div>

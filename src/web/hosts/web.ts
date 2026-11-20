@@ -8,6 +8,7 @@ import type { Client } from "@x-tech-laboratories/x-libs/electron/bridge";
 import { LoginNeeded } from "@x-tech-laboratories/x-libs/web/states";
 
 import type { PageApi } from "../../shared/page_api.ts";
+import type { RunnerMethods } from "../../shared/runs/runner.ts";
 import type { StagesMethods } from "../../shared/stages/model.ts";
 import type { DevMethods } from "../../shared/store.ts";
 
@@ -17,6 +18,8 @@ import type { DevMethods } from "../../shared/store.ts";
 const call_path = "api/call/";
 const backup_path = "api/backup/";
 const stages_path = "api/stages/";
+const runner_path = "api/runner/";
+const abilities_path = "api/abilities";
 const events_path = "api/events";
 const client_id_header = "x-client-id";
 
@@ -75,14 +78,26 @@ function server_backups(): BackupClient {
   });
 }
 
-// The server's stage files, which only an admin may change.
-function server_stages(): Client<StagesMethods> {
-  return new Proxy({} as Client<StagesMethods>, {
-    get: (_target, name) => (typeof name === "string" ? (...args: unknown[]) => call_server(name, args, stages_path) : undefined),
-  });
+// Every call of a table that only an admin reaches, such as the stage files or the runner.
+function server_table<Methods>(path: string): Methods {
+  return new Proxy({} as Record<string, unknown>, {
+    get: (_target, name) => (typeof name === "string" && name !== "then" ? (...args: unknown[]) => call_server(name, args, path) : undefined),
+  }) as Methods;
 }
 
-export function web_api(): PageApi {
+// What the server lets this user do: start runs where it runs agents, and change stages as an admin.
+export async function read_server_abilities(): Promise<{ runner: boolean; stages: boolean }> {
+  try {
+    const response = await fetch(abilities_path);
+    return response.ok ? ((await response.json()) as { runner: boolean; stages: boolean }) : { runner: false, stages: true };
+  } catch {
+    return { runner: false, stages: true };
+  }
+}
+
+// A daemon that runs agents gives an admin its runner; until signed in the page asks again once it is.
+export async function web_api(): Promise<PageApi> {
+  const abilities = await read_server_abilities();
   const listeners = new Set<() => void>();
   follow_changes(() => {
     for (const listener of listeners) listener();
@@ -91,7 +106,8 @@ export function web_api(): PageApi {
     host: "web",
     calls: server_calls(),
     backups: server_backups(),
-    stages: server_stages(),
+    stages: server_table<Client<StagesMethods>>(stages_path),
+    ...(abilities.runner ? { runner: server_table<Client<RunnerMethods>>(runner_path) } : {}),
     device: null,
     on_change: (listener) => {
       listeners.add(listener);

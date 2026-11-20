@@ -93,7 +93,7 @@ function MessageBox({ run_id, paused }: { run_id: string; paused: boolean }) {
 function ModeSwitch({ run_id, mode }: { run_id: string; mode: RunMode | "" }) {
   const { runner } = page();
   const options: [RunMode | "", string][] = [...(mode ? [] : [["", "Another mode"] as [RunMode | "", string]]), ...run_modes.map((each): [RunMode, string] => [each, run_mode_labels[each]])];
-  return <Select<RunMode | ""> label="Permission mode" options={options} value={mode} on_change={(next) => void (next && succeeds(() => runner!.set_run_mode(run_id, next)))} />;
+  return <Select<RunMode | ""> label="Permission mode" bare options={options} value={mode} on_change={(next) => void (next && succeeds(() => runner!.set_run_mode(run_id, next)))} />;
 }
 
 // ── View ─────────────────────────────────────────────────────────────────────

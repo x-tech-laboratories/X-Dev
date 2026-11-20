@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Client } from "@x-tech-laboratories/x-libs/electron/bridge";
 
+import { create_item_calls } from "../src/server/item_calls.ts";
 import { create_stage_files } from "../src/server/stage_files.ts";
 import type { ChangeScope, ChangeSet, RunnerMethods } from "../src/shared/runs/runner.ts";
 import { runner_setting_defaults } from "../src/shared/runs/runner.ts";
@@ -35,7 +36,7 @@ function fake_page(with_runner = true) {
   const store = bind_methods(() => database, () => undefined);
   const stages = create_stage_files({ folder: mkdtempSync(join(tmpdir(), "x-dev-stages-")) }).methods;
   stages.add_default_stages();
-  const runner = {
+  const recorded = {
     get_runner: vi.fn(() => ({ settings: { ...runner_setting_defaults, repositories: { "x-tech-laboratories/X-Dev": "/checkouts/X-Dev" } }, running_run_id: null })),
     set_runner_setting: vi.fn(),
     set_repository: vi.fn(),
@@ -60,7 +61,9 @@ function fake_page(with_runner = true) {
     get_file_change: vi.fn(async () => ({ file: parse_unified_diff(sample_diff)[0]!, truncated: false })),
     revert_file: vi.fn(async () => undefined),
     list_run_changes: vi.fn(async () => ({})),
-  } satisfies RunnerMethods;
+  };
+  // Adding and taking run the daemon's own code over the recorded calls, as they do on the daemon.
+  const runner = { ...recorded, ...create_item_calls({ database: () => database, after_write: () => undefined, runner: recorded }) } satisfies RunnerMethods;
   set_page_api({
     host: "desktop",
     calls: as_client(store) as unknown as Client<DevMethods>,

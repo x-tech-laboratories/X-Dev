@@ -19,6 +19,7 @@ import { checkout_state, run_gates } from "./gates.ts";
 import { done, type Stage, type StagesMethods } from "../shared/stages/model.ts";
 import { find_or_open_issue, github_account, github_sign_out, start_github_sign_in } from "./github.ts";
 import type { GitHubSync } from "./github_sync.ts";
+import { create_item_calls } from "./item_calls.ts";
 import { tools_guide, type RunTools } from "./run_tools.ts";
 import { start_live_run, type LiveRun } from "./live_run.ts";
 import { can_retry, previous_attempt_section } from "../shared/runs/attempts.ts";
@@ -253,6 +254,15 @@ export function create_runner({ database, stages, run_tools, folder, after_write
     return current.live;
   }
 
+  // A run started here keeps its folder until it is discarded; a run synced from another computer has none.
+  function is_own_run(run_id: string): boolean {
+    return existsSync(join(folder, "runs", run_id));
+  }
+
+  function require_own(run: Run): void {
+    if (!is_own_run(run.id)) throw new Error("that run was started on another computer, which holds its worktree and session; act on it from X-Dev there, or connect to that computer");
+  }
+
   function require_free(): void {
     if (current) throw new Error("a run is under way; wait for it or stop it first");
   }
@@ -295,7 +305,16 @@ export function create_runner({ database, stages, run_tools, folder, after_write
     return run_id;
   }
 
+  // Adding an item and taking a proposal need the runner's checkouts and issues, so they are its calls too.
+  const item_calls = create_item_calls({
+    database,
+    after_write,
+    runner: { get_runner: () => methods.get_runner(), add_repository: (checkout) => methods.add_repository(checkout), link_issue: (id) => methods.link_issue(id) },
+  });
+
   const methods: RunnerMethods = {
+    add_item: (input) => item_calls.add_item(input),
+    take_proposal: (id) => item_calls.take_proposal(id),
     get_runner: () => ({ settings: read_settings(), running_run_id: current?.run_id ?? null }),
     set_runner_setting: (key, value) => {
       write_settings(read_runner_settings({ ...read_settings(), [key]: value }));
@@ -359,6 +378,7 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       require_free();
       const run = find_run(database(), run_id);
       if (run.state !== "waiting") throw new Error("that run is not waiting for answers");
+      require_own(run);
       if (!answers.trim()) throw new Error("write the answers first");
       const item = item_of(run.item_id);
       const worktree = join(folder_of(item.repository), ".claude", "worktrees", item.branch.replace(/^worktree-/, ""));
@@ -371,6 +391,7 @@ export function create_runner({ database, stages, run_tools, folder, after_write
       if (run.state === "discarded") return;
       const latest = database().prepare("SELECT id FROM runs WHERE item_id = ? AND state != 'discarded' ORDER BY started_at DESC LIMIT 1").get(run.item_id) as { id: string } | undefined;
       if (latest?.id !== run_id) throw new Error("only the item's latest run can be discarded");
+      require_own(run);
       const item = item_of(run.item_id);
       const worktree = item.branch ? join(folder_of(item.repository), ".claude", "worktrees", item.branch.replace(/^worktree-/, "")) : "";
       if (worktree && run.start_commit && existsSync(worktree)) {
@@ -453,7 +474,8 @@ export function create_runner({ database, stages, run_tools, folder, after_write
   return {
     methods,
     recover: () => {
-      for (const run of runs_in_state(database(), "running")) update_run(database(), run.id, { state: "failed", ended_at: now(), error: "X-Dev stopped while the run was under way." });
+      // Runs another computer has under way, which arrived by sync, are left to it.
+      for (const run of runs_in_state(database(), "running").filter((each) => is_own_run(each.id))) update_run(database(), run.id, { state: "failed", ended_at: now(), error: "X-Dev stopped while the run was under way." });
       after_write();
     },
     mark_asked: (run_id) => void asked.add(run_id),

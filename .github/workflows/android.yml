@@ -1,0 +1,28 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # Builds the phone app in the flake's Android shell, as on a developer's machine, and keeps the debug package.
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v31
+      - name: Build the debug APK
+        run: |
+          nix develop .#android --command bash -c '
+            npm ci
+            npm run build:android
+            cd android && ./gradlew assembleDebug --no-daemon
+          '
+          cp android/app/build/outputs/apk/debug/app-debug.apk x-dev-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: x-dev-debug.apk

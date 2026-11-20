@@ -4,10 +4,5 @@
   "webDir": "out/android",
   "android": {
     "allowMixedContent": true
-  },
-  "plugins": {
-    "CapacitorHttp": {
-      "enabled": true
-    }
   }
 }

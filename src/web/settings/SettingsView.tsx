@@ -11,6 +11,7 @@ import { LocalMcpSettings } from "@x-tech-laboratories/x-libs/web/react/local_mc
 import { PageHeading, SettingRow, SettingsPage, type SettingsCategory, type SettingsSection } from "@x-tech-laboratories/x-libs/web/react/layout";
 import { Loaded } from "@x-tech-laboratories/x-libs/web/react/states";
 import { TrustedCertificates } from "@x-tech-laboratories/x-libs/web/react/certificates";
+import { ConnectionSettings } from "@x-tech-laboratories/x-libs/web/react/connections";
 import { SyncSettings } from "@x-tech-laboratories/x-libs/web/react/sync_settings";
 
 import type { DesktopSettings } from "../../shared/desktop.ts";
@@ -18,11 +19,12 @@ import { notice_kind_labels, notice_kinds, type NoticeKind } from "../../shared/
 import { data_watch, page, set_setting, show_error, use_settings } from "../api.ts";
 import { page_features } from "../features.tsx";
 import { GitHubSettings, RunSettings } from "../stages/RunnerSettings.tsx";
+import { RemoteAccessSettings } from "./RemoteAccessSettings.tsx";
 import { StagesSettings } from "../stages/StagesSettings.tsx";
 
 // ── Stages ───────────────────────────────────────────────────────────────────
 
-// The stages wherever the page reaches their files, and the runner on the desktop, whose daemon runs the agents.
+// The stages wherever the page reaches their files, and the runner wherever the daemon runs the agents.
 function pipeline_category(): SettingsCategory[] {
   const { stages, runner } = page();
   const sections: SettingsSection[] = [
@@ -30,7 +32,7 @@ function pipeline_category(): SettingsCategory[] {
     ...(runner
       ? [
           { id: "github", heading: "GitHub", hint: "The account issues are found and opened with.", content: <GitHubSettings runner={runner} /> },
-          { id: "runs", heading: "Runs", hint: "How this computer runs each stage's agent.", content: <RunSettings runner={runner} /> },
+          { id: "runs", heading: "Runs", hint: page().daemon_is_here ? "How this computer runs each stage's agent." : "How the computer that holds the checkouts runs each stage's agent.", content: <RunSettings runner={runner} is_here={page().daemon_is_here === true} /> },
         ]
       : []),
   ];
@@ -54,21 +56,10 @@ function history_section(settings: Record<string, unknown>, set_setting: (key: s
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-// A phone's backups wait for a folder it picks; the list is read again once one is, as the folder may already hold some.
 function Backups() {
-  const { backups, backup_folder } = page();
-  const [folder_name, set_folder_name] = useState<string | null>(backup_folder ? null : "");
-  useEffect(() => void backup_folder?.get().then(set_folder_name), [backup_folder]);
-  if (!backups || folder_name === null) return null;
-
-  const folder_row = backup_folder && (
-    <SettingRow label="Backup folder" hint={folder_name || "Pick a folder in the phone's storage, such as Documents, where file managers and sync apps can reach the backups."}>
-      <button type="button" onClick={() => void backup_folder.choose().then(set_folder_name)}>
-        {folder_name ? "Change" : "Choose"}
-      </button>
-    </SettingRow>
-  );
-  return <BackupSettings key={folder_name} device={backups} data_name="X-Dev data" on_restored={() => data_watch.bump()} folder_row={folder_row} can_back_up={!backup_folder || folder_name !== ""} />;
+  const { backups } = page();
+  if (!backups) return null;
+  return <BackupSettings device={backups} data_name="X-Dev data" on_restored={() => data_watch.bump()} />;
 }
 
 // The desktop app's own settings, which belong to this computer and do not sync.
@@ -100,23 +91,27 @@ function Desktop() {
   );
 }
 
-// Which kinds of notification this computer's daemon shows; a browser and a phone show none.
+// Which kinds of notification this device shows: the desktop's kept with its other settings, a phone's on the phone.
 function Notifications() {
-  const { desktop } = page();
-  const [settings, set_settings] = useState<DesktopSettings | null>(null);
-  useEffect(() => void desktop?.get_desktop_settings().then(set_settings, show_error), [desktop]);
-  if (!desktop || !settings) return null;
-
+  const { desktop, notice_kinds: phone_kinds } = page();
+  const [kinds, set_kinds] = useState<Record<NoticeKind, boolean> | null>(null);
   const key_of = (kind: NoticeKind) => `notify_${kind}` as keyof DesktopSettings;
+  useEffect(() => {
+    if (phone_kinds) void phone_kinds.get().then(set_kinds, show_error);
+    else if (desktop) void desktop.get_desktop_settings().then((settings) => set_kinds(Object.fromEntries(notice_kinds.map((kind) => [kind, settings[key_of(kind)]])) as Record<NoticeKind, boolean>), show_error);
+  }, [desktop, phone_kinds]);
+  if (!kinds) return null;
+
   const change = (kind: NoticeKind, on: boolean): void => {
-    set_settings({ ...settings, [key_of(kind)]: on });
-    void desktop.set_desktop_setting(key_of(kind), on).catch(show_error);
+    set_kinds({ ...kinds, [kind]: on });
+    const saved = phone_kinds ? phone_kinds.set(kind, on) : desktop!.set_desktop_setting(key_of(kind), on);
+    void saved.catch(show_error);
   };
   return (
     <>
       {notice_kinds.map((kind) => (
         <SettingRow key={kind} label={notice_kind_labels[kind][0]} hint={notice_kind_labels[kind][1]} as_label>
-          <Switch label={notice_kind_labels[kind][0]} checked={settings[key_of(kind)]} on_change={(on) => change(kind, on)} />
+          <Switch label={notice_kind_labels[kind][0]} checked={kinds[kind]} on_change={(on) => change(kind, on)} />
         </SettingRow>
       ))}
     </>
@@ -125,22 +120,29 @@ function Notifications() {
 
 // Sync on a device with its own database, and backups of whichever database the page works on.
 function data_category(): SettingsCategory[] {
-  const { device, backups, backup_folder, certificates, local_mcp, desktop } = page();
+  const { host, device, backups, certificates, local_mcp, desktop, connections, remote_access, notice_kinds: phone_kinds } = page();
   const sections: SettingsSection[] = [
+    ...(connections
+      ? [{ id: "connections", heading: "Connections", hint: host === "android" ? "The X-Dev daemon this phone works on: the computer that holds the checkouts and runs the agents." : "The X-Dev daemon this window works on: This computer, or another computer that lets other devices connect.", content: <>
+        <ConnectionSettings client={connections} certificates={certificates} placeholder="https://dev.example.org:7760" />
+        {!device && certificates && <TrustedCertificates certificates={certificates} />}
+      </> }]
+      : []),
+    ...(remote_access ? [{ id: "remote", heading: "Other devices", hint: "Let phones, browsers and other computers work on this computer's X-Dev.", content: <RemoteAccessSettings remote={remote_access} /> }] : []),
     ...(device ? [{ id: "sync", heading: "Sync", hint: "Keep this device's data alike with your X-Dev server.", content: <>
       <SyncSettings device={device} certificates={certificates} subscribe={data_watch.subscribe} data_name="X-Dev data" placeholder="https://dev.example.org/" />
       {certificates && <TrustedCertificates certificates={certificates} />}
     </> }] : []),
     ...(backups
-      ? [{ id: "backups", heading: "Backups", hint: backup_folder ? "Copies of this device's data, kept in a folder you pick." : device ? "Copies of this device's data, kept beside it." : "Copies of the server's data, kept in its data folder. A restore restarts the server.", content: <Backups /> }]
+      ? [{ id: "backups", heading: "Backups", hint: device ? "Copies of this device's data, kept beside it." : host === "web" ? "Copies of the server's data, kept in its data folder. A restore restarts the server." : "Copies of the daemon's data, kept where it runs.", content: <Backups /> }]
       : []),
-    ...(desktop ? [{ id: "notifications", heading: "Notifications", hint: "What this computer tells you about runs while X-Dev is closed or out of sight; clicking one opens the item.", content: <Notifications /> }] : []),
+    ...(desktop || phone_kinds ? [{ id: "notifications", heading: "Notifications", hint: phone_kinds ? "What this phone tells you about runs while X-Dev is open or in the background; tapping one opens the item." : "What this computer tells you about runs while X-Dev is closed or out of sight; clicking one opens the item.", content: <Notifications /> }] : []),
     ...(local_mcp
-      ? [{ id: "mcp", heading: "MCP server", hint: "Let AI assistants such as Claude Code reach this device's data without the server.", content: <LocalMcpSettings device={local_mcp} name="x-dev" data_name="read and change your items" /> }]
+      ? [{ id: "mcp", heading: "MCP server", hint: "Let AI assistants such as Claude Code on this computer add items and work every control, starting agent runs included, without the server.", content: <LocalMcpSettings device={local_mcp} name="x-dev" data_name="add and change your items and start agent runs" /> }]
       : []),
     ...(desktop ? [{ id: "desktop", heading: "Desktop", hint: "The tray icon, and what runs while the window is closed.", content: <Desktop /> }] : []),
   ];
-  return sections.length ? [{ heading: device ? "This device" : "Server", sections }] : [];
+  return sections.length ? [{ heading: host === "web" ? "Server" : "This device", sections }] : [];
 }
 
 export function SettingsView() {
