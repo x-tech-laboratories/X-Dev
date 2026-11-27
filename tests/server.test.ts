@@ -66,6 +66,11 @@ describe("server", () => {
     expect((await signed({ method: "POST", url: "/api/call/get_settings", payload: [] })).statusCode).toBe(200);
   });
 
+  it("refuses an encoded path to an API call before sign-in", async () => {
+    await start();
+    expect([400, 401]).toContain((await app.inject({ method: "POST", url: "/%61pi/call/get_settings", payload: [] })).statusCode);
+  });
+
   it("serves the built page beside the API", async () => {
     const folder = mkdtempSync(join(tmpdir(), "x-dev-web-"));
     writeFileSync(join(folder, "index.html"), "<title>X-Dev</title>");
