@@ -13,8 +13,9 @@ function open_device(): DatabaseSync {
 
 // Sends one device's unpushed changes to another, as an exchange through the server does.
 function push(from: DatabaseSync, to: DatabaseSync): void {
-  const outgoing = sync_engine.collect_unpushed_changes(from);
-  sync_engine.write_state(from, { pushed_seq: outgoing.up_to_seq });
+  const receiver = sync_engine.read_state(to).site;
+  const outgoing = sync_engine.collect_changes_since(from, sync_engine.read_peer(from, receiver).sent_seq, receiver);
+  sync_engine.write_peer(from, receiver, { site: receiver, sent_seq: outgoing.up_to_seq });
   sync_engine.apply_changes(to, outgoing.changes);
 }
 

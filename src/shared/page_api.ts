@@ -8,7 +8,7 @@ import { backup_method_names, type BackupClient, type BackupMethods } from "@x-t
 import type { CertificateClient } from "@x-tech-laboratories/x-libs/certificate_protocol";
 import type { ConnectionClient } from "@x-tech-laboratories/x-libs/connection_protocol";
 import type { LocalMcpClient } from "@x-tech-laboratories/x-libs/local_mcp_protocol";
-import { sync_device_method_names, type SyncDeviceMethods, type SyncStatus } from "@x-tech-laboratories/x-libs/sync_protocol";
+import { sync_device_method_names, type PeerListeningClient, type SyncDeviceClient, type SyncDeviceMethods, type SyncStatus } from "@x-tech-laboratories/x-libs/sync_protocol";
 
 import type { DesktopMethods } from "./desktop.ts";
 import type { RemoteAccessMethods } from "./remote_access.ts";
@@ -25,6 +25,7 @@ export const device_api_name = "x_dev_device";
 export const events_api_name = "x_dev_events";
 export const certificates_api_name = "x_dev_certificates";
 export const local_mcp_api_name = "x_dev_local_mcp";
+export const listening_api_name = "x_dev_listening";
 export const desktop_api_name = "x_dev_desktop";
 export const stages_api_name = "x_dev_stages";
 export const runner_api_name = "x_dev_runner";
@@ -58,6 +59,10 @@ export interface PageApi {
   backups?: BackupClient;
   // Set where the app makes its own connections and can trust a certificate the system refuses.
   certificates?: CertificateClient;
+  // Set on the desktop, whose own daemon can let paired devices connect to it for sync.
+  listening?: PeerListeningClient;
+  // Set in a browser: the server's own sync, which an admin pairs devices with.
+  server_sync?: SyncDeviceClient;
   // Set on the desktop, which can serve its own MCP endpoint to AI clients on the same computer.
   local_mcp?: LocalMcpClient;
   // The stage files, kept by the daemon or the server that runs the agents; left out on a phone.

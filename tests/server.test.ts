@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance, InjectOptions } from "fastify";
 
 import { hash_password } from "@x-tech-laboratories/x-libs/server/passwords";
+import { file_sync_storage } from "@x-tech-laboratories/x-libs/sync_file_storage";
+import { decode_pairing_offer } from "@x-tech-laboratories/x-libs/sync_seal";
 
 import { build_app } from "../src/server/app.ts";
 import { create_stage_files } from "../src/server/stage_files.ts";
@@ -48,7 +50,8 @@ async function start(web_folder = "/nonexistent"): Promise<FastifyInstance> {
   const database = new DatabaseSync(":memory:");
   open_store(database);
   const stages = create_stage_files({ folder: mkdtempSync(join(tmpdir(), "x-dev-stages-")) }).methods;
-  app = await build_app({ database, declared: new Map([["root", hash_password(password)]]), web_folder, backups: fake_backups, stages });
+  const sync = { storage: file_sync_storage({ file: join(mkdtempSync(join(tmpdir(), "x-dev-sync-")), "sync-peers.json"), back_up_before_replace: () => {} }), address: "https://dev.example.org/api/" };
+  app = await build_app({ database, declared: new Map([["root", hash_password(password)]]), web_folder, backups: fake_backups, stages, sync });
   token = (await app.inject({ method: "POST", url: "/api/login", payload: { name: "root", password, device: "tests" } })).json().token;
   return app;
 }
@@ -133,13 +136,15 @@ describe("server", () => {
     expect(JSON.parse((item.content as { text: string }[])[0]!.text)).toMatchObject({ title: "Board", status: { goal: "Swimlanes." } });
   });
 
-  it("serves sync to devices", async () => {
+  it("lets paired devices reach its sync without signing in, and gives only an admin a pairing code", async () => {
     await start();
-    const snapshot = await signed({ method: "GET", url: "/api/sync/snapshot" });
-    expect(snapshot.statusCode).toBe(200);
-    const { generation, changes } = snapshot.json() as { generation: string; changes: unknown[] };
-    expect(generation).not.toBe("");
-    expect(changes).toEqual([]);
+    const stranger = await app.inject({ method: "POST", url: "/api/sync/peer", headers: { "content-type": "application/octet-stream", "x-sync-device": "NOBODY" }, payload: Buffer.alloc(64) });
+    expect(stranger.statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: "/api/sync/create_pairing_code", payload: [] })).statusCode).toBe(401);
+
+    const made = await signed({ method: "POST", url: "/api/sync/create_pairing_code", payload: [] });
+    const offer = decode_pairing_offer((made.json() as { code: string }).code);
+    expect(offer).toMatchObject({ app: "x-dev", name: "X-Dev server", addresses: ["https://dev.example.org/api/"] });
   });
 
   it("lets an admin list and take the server's backups, and refuses unknown backup calls", async () => {

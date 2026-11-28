@@ -1,4 +1,5 @@
-// The web server: the page, every data call the page makes, and the sync every device runs against, all on one database.
+// The web server: the page, every data call the page makes, and this server's copy of the data as one of the paired
+// devices it syncs with, all on one database.
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
@@ -15,10 +16,12 @@ import { register_accounts } from "@x-tech-laboratories/x-libs/server/account_si
 import { AccountStore } from "@x-tech-laboratories/x-libs/server/account_store";
 import type { Accounts } from "@x-tech-laboratories/x-libs/server/passwords";
 import type { BackupMethods } from "@x-tech-laboratories/x-libs/backup_protocol";
-import { register_sync_routes } from "@x-tech-laboratories/x-libs/server/sync_routes";
+import { register_sync_peer_routes, sync_peer_headers } from "@x-tech-laboratories/x-libs/server/sync_peer_routes";
 import { register_web_folder } from "@x-tech-laboratories/x-libs/server/web_folder";
 import { register_webhook_route } from "@x-tech-laboratories/x-libs/server/forge_webhook";
 import type { SqlDatabase } from "@x-tech-laboratories/x-libs/sql";
+import { create_sync_peer, sync_device_methods } from "@x-tech-laboratories/x-libs/sync_peer";
+import type { PeerStorage } from "@x-tech-laboratories/x-libs/sync_protocol";
 
 import type { RunnerMethods } from "../shared/runs/runner.ts";
 import { runner_api } from "../shared/runs/api.ts";
@@ -51,6 +54,8 @@ export interface AppOptions {
   runner?: RunnerMethods;
   // GitHub's webhooks: deliveries taken without a session, checked by their signature, and an admin's calls.
   webhooks?: Pick<GitHubWebhooks, "methods" | "receive">;
+  // This server's sync keys, paired devices and the address they reach it at; without them it syncs with no device.
+  sync?: { storage: PeerStorage; address: string | null };
   // The certificate and key to serve https with; plain http without them.
   https?: { cert: Buffer; key: Buffer };
 }
@@ -75,7 +80,7 @@ export async function build_app(options: AppOptions): Promise<FastifyInstance> {
   register_lenient_json_body(app);
   register_error_replies(app);
   // A phone's page calls from an origin of its own with a token, the sign-in included, and a browser sends no cookie across origins.
-  await register_open_cors(app);
+  await register_open_cors(app, { allowed_headers: sync_peer_headers });
   // The event stream writes its own head, so it carries the open origin itself, or a phone never hears of changes.
   app.addHook("onRequest", async (request, reply) => {
     if (request.url.split("?")[0] === "/api/events") reply.raw.setHeader("access-control-allow-origin", "*");
@@ -83,13 +88,29 @@ export async function build_app(options: AppOptions): Promise<FastifyInstance> {
   const accounts = new AccountStore({ database: options.database, app_name: "X-Dev", declared: options.declared, token_prefix: "xf" });
   const admin = { role: accounts.top_role };
   // Backups hold the accounts, stages steer agents and the runner starts them with this computer's rights: admins only.
-  const admin_only = ["/api/backup/", "/api/stages/", "/api/runner/", "/api/github_webhook/"];
-  // GitHub posts without a session; its signature over the body is what lets a delivery in.
-  const open_paths = options.webhooks ? [webhook_path] : [];
+  const admin_only = ["/api/backup/", "/api/stages/", "/api/runner/", "/api/github_webhook/", "/api/sync/"];
+  // GitHub posts without a session, and so do paired devices: a delivery's signature, or a sync call's seal, is what lets it in.
+  const open_paths = [...(options.webhooks ? [webhook_path] : []), "/api/sync/peer"];
   await register_accounts(app, { accounts, cookie_name: "x_dev_session", open_paths, read_only_paths: ["/api/mcp"], needed: (_method, path) => (admin_only.some((prefix) => path.startsWith(prefix)) ? admin : "any") });
 
   const changes = options.changes ?? new EventStream();
   const database = () => options.database;
+  const sync_options = options.sync;
+  const sync = sync_options
+    ? create_sync_peer({
+        app: "x-dev",
+        engine: sync_engine,
+        database,
+        storage: sync_options.storage,
+        device_name: "X-Dev server",
+        addresses: () => (sync_options.address ? [sync_options.address] : []),
+        on_remote_change: () => changes.announce_change(),
+      })
+    : null;
+  if (sync) {
+    app.addHook("onReady", async () => sync.start());
+    app.addHook("onClose", async () => sync.stop());
+  }
   const mcp_call = create_mcp_call({ database, announce: () => changes.announce_change(), stages: options.stages, runner: options.runner, webhooks: options.webhooks?.methods });
 
   await app.register(
@@ -130,12 +151,11 @@ export async function build_app(options: AppOptions): Promise<FastifyInstance> {
       if (options.runner) register_call_table(api, "/runner", remote_runner(options.runner), { is_read_only, on_change: (client_id) => changes.announce_change(client_id) });
       // An admin sets the webhook up here; the secret leaves only through show_github_webhook_setup.
       if (options.webhooks) register_call_table(api, "/github_webhook", options.webhooks.methods, { is_read_only });
-      register_sync_routes(api, {
-        engine: sync_engine,
-        database,
-        back_up: async () => void (await options.backups.create_backup()),
-        on_change: (request) => changes.announce_change(changes.client_id_of(request)),
-      });
+      if (sync) {
+        register_sync_peer_routes(api, sync);
+        // The server's own pairing calls, which an admin makes from the page's Sync section.
+        register_call_table(api, "/sync", sync_device_methods(sync), { is_read_only });
+      }
     },
     { prefix: "/api" },
   );

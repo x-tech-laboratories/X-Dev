@@ -23,7 +23,7 @@ function fake_calls(saved: Record<string, unknown>): Client<DevMethods> {
   } as unknown as Client<DevMethods>;
 }
 
-const off = { state: "off", server_url: "", user: "", last_synced_at: "", pending_changes: 0, error: "" } as const;
+const off = { state: "off", device: "ABCDEFGHIJKLMNOP", name: "X-Dev on laptop", addresses: [], peers: [], last_synced_at: "", pending_changes: 0, error: "" } as const;
 
 describe("settings", () => {
   it("shows how long history is kept and saves a change", async () => {
@@ -36,22 +36,35 @@ describe("settings", () => {
     expect(screen.queryByText("Sync")).toBeNull();
   });
 
-  it("offers sync on a device and signs it in with the choice of copy", async () => {
+  it("offers sync on a device, pairs it with another device's code, and lets other devices connect on the desktop", async () => {
     const device = {
       get_sync_status: vi.fn(async () => off),
-      connect_sync: vi.fn(async () => ({ ...off, state: "idle", server_url: "https://dev.example.org/" })),
-      disconnect_sync: vi.fn(),
-      sync_now: vi.fn(),
+      pair_device: vi.fn(async () => ({ ...off, state: "idle" })),
     } as unknown as Client<DeviceMethods>;
-    set_page_api({ host: "desktop", calls: fake_calls({}), device, on_change: () => () => undefined });
+    const listening = {
+      get_peer_listening: vi.fn(async () => ({ on: false, port: 3934, addresses: [], error: "" })),
+      set_peer_listening: vi.fn(async (on: boolean, port?: number) => ({ on, port: port ?? 3934, addresses: [], error: "" })),
+    };
+    set_page_api({ host: "desktop", calls: fake_calls({}), device, listening, on_change: () => () => undefined });
     render(<><SettingsView /><Dialogs /></>);
 
-    fireEvent.change(await screen.findByLabelText("Server address"), { target: { value: "https://dev.example.org" } });
-    fireEvent.change(screen.getByLabelText("User name"), { target: { value: "ada" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret" } });
-    fireEvent.click(screen.getByRole("button", { name: "Use the server's X-Dev data" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Use the server's" }));
-    await waitFor(() => expect(device.connect_sync).toHaveBeenCalledWith("https://dev.example.org", { name: "ada", password: "secret" }, "download"));
+    fireEvent.change(await screen.findByPlaceholderText("x-sync:…"), { target: { value: "x-sync:from-the-server" } });
+    fireEvent.click(screen.getByRole("button", { name: "Pair" }));
+    await waitFor(() => expect(device.pair_device).toHaveBeenCalledWith("x-sync:from-the-server"));
+    fireEvent.click(await screen.findByRole("switch", { name: "Let other devices connect" }));
+    await waitFor(() => expect(listening.set_peer_listening).toHaveBeenCalledWith(true, 3934));
+  });
+
+  it("shows an admin the server's own Sync section in a browser", async () => {
+    const server_sync = {
+      get_sync_status: vi.fn(async () => ({ ...off, addresses: ["https://dev.example.org/api/"] })),
+      create_pairing_code: vi.fn(async () => ({ code: "x-sync:server", expires_at: "2026-11-28T12:00:00Z" })),
+    } as never;
+    set_page_api({ host: "web", calls: fake_calls({}), device: null, server_sync, on_change: () => () => undefined });
+    render(<><SettingsView /><Dialogs /></>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Show pairing code" }));
+    await waitFor(() => expect(screen.getByText(/x-sync:server/)).toBeTruthy());
   });
 
   it("shows the server's backups in a browser and takes one by hand", async () => {

@@ -2,7 +2,7 @@
 
 X-Dev takes features and bug fixes through stages, one AI coding agent run per stage. It is a React page that runs in a
 browser against its own server or a desktop daemon that lets other devices connect, in Electron with its own daemon or
-one on another computer, and on Android in Capacitor on a daemon elsewhere; daemons' data syncs through the server. Read `README.md` first, then `docs/design.md` and `docs/architecture.md`. It follows the
+one on another computer, and on Android in Capacitor on a daemon elsewhere; every daemon's data syncs with the others as paired devices. Read `README.md` first, then `docs/design.md` and `docs/architecture.md`. It follows the
 [X-Tech Application Standard](https://x-tech-laboratories.github.io/standards/application/).
 
 ## Setup and checks

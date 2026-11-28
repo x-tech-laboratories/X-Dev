@@ -1,45 +1,78 @@
-// Sync between daemons and a server over real listeners on loopback ports, each on a throwaway database.
+// Sync between daemons and a server, each a paired peer on a throwaway database, their calls carried by an in-memory network.
 
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { hash_password } from "@x-tech-laboratories/x-libs/server/passwords";
-import { create_sync_client, type SyncClient, type SyncConfig } from "@x-tech-laboratories/x-libs/sync_client";
+import { create_sync_peer, type SyncPeer } from "@x-tech-laboratories/x-libs/sync_peer";
+import { peer_device_header, peer_key_header, type PeerIdentity, type PeerRecord, type PeerStorage } from "@x-tech-laboratories/x-libs/sync_protocol";
 
-import { build_app } from "../src/server/app.ts";
-import { create_stage_files } from "../src/server/stage_files.ts";
 import { insert_run, propose, update_run } from "../src/shared/runs/store.ts";
 import { bind_methods, open_store, sync_engine } from "../src/shared/store.ts";
-import { admin, repository, start_test_daemon, type TestDaemon } from "./helpers/daemon.ts";
+import { repository, start_test_daemon, type TestDaemon } from "./helpers/daemon.ts";
 import { temp_folder } from "./helpers/loopback.ts";
 
-const clients: SyncClient[] = [];
+const peers: SyncPeer[] = [];
 const daemons: TestDaemon[] = [];
-const servers: FastifyInstance[] = [];
 
 afterEach(async () => {
-  for (const client of clients.splice(0)) client.stop();
+  for (const peer of peers.splice(0)) peer.stop();
   for (const daemon of daemons.splice(0)) await daemon.stop();
-  for (const server of servers.splice(0)) await server.close();
 });
 
 // ============================================================================
 // Hosts
 // ============================================================================
 
-// The web server, which every daemon's data syncs through, with one admin.
-async function start_server() {
+// Delivers each call to the peer answering at the address's origin, as the network would.
+const network = new Map<string, SyncPeer>();
+const network_fetch: typeof fetch = async (input, init) => {
+  const peer = network.get(new URL(String(input)).origin);
+  if (!peer) throw new TypeError("fetch failed");
+  const headers = init?.headers as Record<string, string>;
+  const reply = await peer.answer({ device: headers[peer_device_header]!, key: headers[peer_key_header], body: new Uint8Array(init!.body as Uint8Array) });
+  return new Response(reply.body as BodyInit, { status: reply.status });
+};
+
+function memory_storage(): PeerStorage {
+  let identity: PeerIdentity | null = null;
+  let saved: PeerRecord[] = [];
+  return {
+    read_identity: () => identity,
+    write_identity: (written) => void (identity = written),
+    read_peers: () => saved,
+    write_peers: (written) => void (saved = written),
+    back_up_before_replace: () => undefined,
+  };
+}
+
+// A sync peer as a daemon or the server runs one, syncing only when asked; one with an address answers the others there.
+function peer_of(database: DatabaseSync, name: string, address: string | null = null, unreachable = ""): SyncPeer {
+  const reach: typeof fetch = (input, init) => (unreachable && String(input).startsWith(unreachable) ? Promise.reject(new TypeError("fetch failed")) : network_fetch(input, init));
+  const peer = create_sync_peer({
+    app: "x-dev",
+    engine: sync_engine,
+    database: () => database,
+    storage: memory_storage(),
+    device_name: name,
+    addresses: () => (address ? [address] : []),
+    fetch: reach,
+  });
+  if (address) network.set(new URL(address).origin, peer);
+  peers.push(peer);
+  return peer;
+}
+
+let server_count = 0;
+
+// The server, one of the peers, which every daemon reaches.
+function start_server() {
   const database = new DatabaseSync(join(temp_folder("server"), "server.db"));
   open_store(database);
-  const stages = create_stage_files({ folder: temp_folder("stages") }).methods;
-  const backups = { list_backups: async () => [], create_backup: async () => ({}), restore_backup: async () => undefined, remove_backup: async () => undefined, get_backup_schedule: () => ({}), set_backup_schedule: () => undefined } as never;
-  const server = await build_app({ database, declared: new Map([[admin.name, hash_password(admin.password)]]), web_folder: "/nonexistent", backups, stages });
-  await server.listen({ host: "127.0.0.1", port: 0 });
-  servers.push(server);
-  return { database, store: bind_methods(() => database, () => undefined), address: `http://127.0.0.1:${(server.server.address() as { port: number }).port}` };
+  server_count += 1;
+  const peer = peer_of(database, "X-Dev server", `http://server-${server_count}.test/api/`);
+  return { database, store: bind_methods(() => database, () => undefined), peer };
 }
 
 async function start_daemon(): Promise<TestDaemon> {
@@ -48,30 +81,9 @@ async function start_daemon(): Promise<TestDaemon> {
   return daemon;
 }
 
-// A sync client as the daemon runs one, its sign-in kept in memory, syncing only when asked.
-function sync_client_of(database: DatabaseSync, on_remote_change: () => void = () => undefined): SyncClient {
-  let config: SyncConfig | null = null;
-  const client = create_sync_client({
-    engine: sync_engine,
-    database: () => database,
-    storage: {
-      read_config: () => config,
-      write_config: (next) => void (config = next),
-      remove_config: () => void (config = null),
-      back_up_before_download: () => undefined,
-    },
-    device_name: "Test daemon",
-    on_remote_change,
-    local_check_ms: 60_000,
-    full_sync_ms: 60_000,
-  });
-  clients.push(client);
-  return client;
-}
-
-// Syncs each client in turn, twice over, so a change made anywhere has been through the server to everyone.
-async function sync_all(...all: SyncClient[]): Promise<void> {
-  for (let round = 0; round < 2; round++) for (const client of all) expect((await client.sync_now()).state).toBe("idle");
+// Syncs each peer in turn, twice over, so a change made anywhere has reached everyone.
+async function sync_all(...all: SyncPeer[]): Promise<void> {
+  for (let round = 0; round < 2; round++) for (const peer of all) expect((await peer.sync_now()).state).toBe("idle");
 }
 
 function start_run_row(database: DatabaseSync, item_id: string): string {
@@ -82,20 +94,20 @@ function start_run_row(database: DatabaseSync, item_id: string): string {
 // Through a server
 // ============================================================================
 
-describe("two daemons syncing through the server", () => {
+describe("two daemons paired with the server", () => {
   it("converge on items, runs with their questions, answers and reports, and proposals changed on each side", async () => {
-    const server = await start_server();
+    const server = start_server();
     const first = await start_daemon();
     const second = await start_daemon();
-    const first_sync = sync_client_of(first.database);
-    const second_sync = sync_client_of(second.database);
+    const first_sync = peer_of(first.database, "First daemon");
+    const second_sync = peer_of(second.database, "Second daemon");
     const id = first.store.save_item({ title: "Board with swimlanes", repository, stage: "plan" });
     const run_id = start_run_row(first.database, id);
     update_run(first.database, run_id, { state: "waiting", questions: [{ question: "Lanes or tabs?", why: "Both fit.", choices: ["Lanes", "Tabs"] }] });
     propose(first.database, { item_id: id, run_id }, { title: "Keyboard moves between lanes", why: "Seen while planning." }, "2026-11-20T10:05:00Z");
 
-    await first_sync.connect(server.address, admin, "upload");
-    await second_sync.connect(server.address, admin, "download");
+    await first_sync.pair_device(server.peer.create_pairing_code().code);
+    await second_sync.pair_device(server.peer.create_pairing_code().code);
     expect(second.store.get_item(id).title).toBe("Board with swimlanes");
 
     // Each side changes something while the other finishes the run.
@@ -114,13 +126,13 @@ describe("two daemons syncing through the server", () => {
   });
 
   it("leaves a run another daemon started to it: not failed at start, answered or discarded here", async () => {
-    const server = await start_server();
+    const server = start_server();
     const first = await start_daemon();
     const second = await start_daemon();
-    const first_sync = sync_client_of(first.database);
-    const second_sync = sync_client_of(second.database);
-    await first_sync.connect(server.address, admin, "upload");
-    await second_sync.connect(server.address, admin, "download");
+    const first_sync = peer_of(first.database, "First daemon");
+    const second_sync = peer_of(second.database, "Second daemon");
+    await first_sync.pair_device(server.peer.create_pairing_code().code);
+    await second_sync.pair_device(server.peer.create_pairing_code().code);
 
     // The first daemon runs a stage that asks, then starts one that is still under way.
     const asking_item = first.store.save_item({ title: "Board with swimlanes", repository, body: "ASK STATUS", stage: "plan", issue_number: 7 });
@@ -146,24 +158,28 @@ describe("two daemons syncing through the server", () => {
     await sync_all(first_sync, second_sync);
     expect(second.store.get_run(asking)).toMatchObject({ state: "done", answers: "Lanes." });
     expect(second.store.get_run(running).state).toBe("stopped");
-  });
+  }, 15_000);
 });
 
 // ============================================================================
 // A daemon in between
 // ============================================================================
 
-describe("a daemon that serves sync to another and syncs with the server", () => {
+describe("a daemon that lets another connect and is paired with the server", () => {
+  let chain_count = 0;
+
+  // The far device reaches only the daemon in the middle, which reaches only the server.
   async function chain() {
-    const server = await start_server();
+    const server = start_server();
     const middle = await start_daemon();
-    const middle_sync = sync_client_of(middle.database);
-    await middle_sync.connect(server.address, admin, "upload");
+    chain_count += 1;
+    const middle_sync = peer_of(middle.database, "Middle daemon", `http://middle-${chain_count}.test/`);
+    await middle_sync.pair_device(server.peer.create_pairing_code().code);
     const far_database = new DatabaseSync(":memory:");
     open_store(far_database);
     const far = bind_methods(() => far_database, () => undefined);
-    const far_sync = sync_client_of(far_database);
-    await far_sync.connect(middle.address, admin, "download");
+    const far_sync = peer_of(far_database, "Far device", null, `http://server-${server_count}.test/`);
+    await far_sync.pair_device(middle_sync.create_pairing_code().code);
     return { server, middle, middle_sync, far, far_sync };
   }
 
@@ -187,8 +203,7 @@ describe("a daemon that serves sync to another and syncs with the server", () =>
     expect(middle.store.get_item(id).title).toBe("Made on the far device");
   });
 
-  // Fails: a daemon sends the server only the changes made on it, never those it took from a device syncing with it.
-  it.fails("passes the device's changes on to the server", async () => {
+  it("passes the device's changes on to the server", async () => {
     const { server, middle_sync, far, far_sync } = await chain();
 
     const id = far.save_item({ title: "Made on the far device", repository });

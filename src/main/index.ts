@@ -20,9 +20,10 @@ import { create_daemon_link } from "@x-tech-laboratories/x-libs/daemon_link";
 import { backup_method_names } from "@x-tech-laboratories/x-libs/backup_protocol";
 import { call_daemon, daemon_log_path, daemon_socket_path, start_daemon } from "@x-tech-laboratories/x-libs/local_daemon";
 import { certificate_method_names } from "@x-tech-laboratories/x-libs/certificate_protocol";
+import { peer_listening_method_names } from "@x-tech-laboratories/x-libs/sync_protocol";
 import { local_mcp_method_names } from "@x-tech-laboratories/x-libs/local_mcp_protocol";
 
-import { backup_bridge, certificate_bridge, connection_bridge, desktop_bridge, device_bridge, dev_bridge, dev_events, local_mcp_bridge, remote_access_bridge, runner_bridge, stages_bridge, webhook_bridge } from "../shared/bridge.ts";
+import { backup_bridge, certificate_bridge, connection_bridge, listening_bridge, desktop_bridge, device_bridge, dev_bridge, dev_events, local_mcp_bridge, remote_access_bridge, runner_bridge, stages_bridge, webhook_bridge } from "../shared/bridge.ts";
 import type { DesktopMethods, DesktopSettings } from "../shared/desktop.ts";
 import { remote_access_method_names } from "../shared/remote_access.ts";
 import { route_of_link } from "../shared/links.ts";
@@ -204,6 +205,7 @@ function register_bridges(): void {
   backup_bridge.handle(ipcMain, forwarded(backup_method_names, () => (is_here() ? "device" : "backup")) as never, options);
   device_bridge.handle(ipcMain, forwarded(device_method_names, "device") as never, options);
   certificate_bridge.handle(ipcMain, forwarded(certificate_method_names, "certificates") as never, options);
+  listening_bridge.handle(ipcMain, forwarded(peer_listening_method_names, "listening") as never, options);
   local_mcp_bridge.handle(ipcMain, forwarded(local_mcp_method_names, "local_mcp") as never, options);
   stages_bridge.handle(ipcMain, forwarded(stages_method_names, "stages") as never, options);
   runner_bridge.handle(ipcMain, forwarded(runner_method_names, "runner") as never, options);

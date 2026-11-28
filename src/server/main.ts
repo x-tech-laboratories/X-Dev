@@ -9,6 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { keep_backing_up } from "@x-tech-laboratories/x-libs/backups";
 import { read_server_config } from "@x-tech-laboratories/x-libs/server/config";
+import { file_sync_storage } from "@x-tech-laboratories/x-libs/sync_file_storage";
 import { EventStream } from "@x-tech-laboratories/x-libs/server/events";
 import { load_accounts } from "@x-tech-laboratories/x-libs/server/passwords";
 import { sqlite_backups, take_staged_restore } from "@x-tech-laboratories/x-libs/server/sqlite_backups";
@@ -24,6 +25,8 @@ import { create_stage_files } from "./stage_files.ts";
 interface DevConfig {
   database: string;
   backups_folder: string;
+  // Where paired devices reach this server's sync, such as "https://dev.example.org/api/".
+  sync_address?: string;
   // Claude Code's agents folder in the server's home unless set.
   stages_folder?: string;
   // The file X-Dev keeps GitHub's webhook secret in, github-webhook-secret beside the database unless set.
@@ -103,6 +106,10 @@ const app = await build_app({
   database,
   declared: load_accounts("X_DEV_PASSWORD_HASH_FILE"),
   web_folder: server_config.web_folder,
+  sync: {
+    storage: file_sync_storage({ file: join(dirname(database_path), "sync-peers.json"), back_up_before_replace: async () => void (await kept.create()) }),
+    address: config.sync_address ?? null,
+  },
   backups: {
     list_backups: kept.list,
     create_backup: () => kept.create(),

@@ -17,11 +17,14 @@ let
 
   state_directory = "/var/lib/x-dev";
 
-  config_file = (pkgs.formats.json { }).generate "x-dev.json" {
-    database = "${state_directory}/dev.db";
-    backups_folder = "${state_directory}/backups";
-    stages_folder = "${state_directory}/stages";
-  };
+  config_file = (pkgs.formats.json { }).generate "x-dev.json" (
+    {
+      database = "${state_directory}/dev.db";
+      backups_folder = "${state_directory}/backups";
+      stages_folder = "${state_directory}/stages";
+    }
+    // lib.optionalAttrs (cfg.syncAddress != null) { sync_address = cfg.syncAddress; }
+  );
 in
 {
   options.services.x-dev = {
@@ -50,6 +53,13 @@ in
       type = types.bool;
       default = false;
       description = "Open the port in the firewall.";
+    };
+
+    syncAddress = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "https://dev.example.org/api/";
+      description = "Where paired devices reach this server's sync, through its reverse proxy; without it the server only reaches out to devices that let others connect.";
     };
 
     passwordHashFile = mkOption {
