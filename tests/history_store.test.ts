@@ -49,7 +49,7 @@ describe("history", () => {
     const desktop = open_methods();
     const id = laptop.store.save_item(item);
 
-    sync_engine.apply_changes(desktop.database, sync_engine.collect_unpushed_changes(laptop.database).changes);
+    sync_engine.apply_changes(desktop.database, sync_engine.collect_changes_since(laptop.database, 0, "").changes);
     expect(desktop.store.list_item_history("item", id).map((version) => [version.change, version.origin])).toEqual([["created", "elsewhere"]]);
 
     desktop.store.save_item({ title: "Another", repository: "x-tech-laboratories/X-Libs" });

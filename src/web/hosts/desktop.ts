@@ -6,11 +6,12 @@
 import type { Client } from "@x-tech-laboratories/x-libs/electron/bridge";
 import type { BackupClient } from "@x-tech-laboratories/x-libs/backup_protocol";
 import type { CertificateClient } from "@x-tech-laboratories/x-libs/certificate_protocol";
+import type { PeerListeningClient } from "@x-tech-laboratories/x-libs/sync_protocol";
 import { LOCAL_CONNECTION_ID, type ConnectionClient } from "@x-tech-laboratories/x-libs/connection_protocol";
 import type { EventsClient } from "@x-tech-laboratories/x-libs/electron/events";
 import type { LocalMcpClient } from "@x-tech-laboratories/x-libs/local_mcp_protocol";
 
-import { backups_api_name, connections_api_name, remote_access_api_name, certificates_api_name, desktop_api_name, device_api_name, events_api_name, dev_api_name, local_mcp_api_name, stages_api_name, runner_api_name, webhooks_api_name, type DeviceMethods, type DevEvents, type PageApi } from "../../shared/page_api.ts";
+import { backups_api_name, connections_api_name, listening_api_name, remote_access_api_name, certificates_api_name, desktop_api_name, device_api_name, events_api_name, dev_api_name, local_mcp_api_name, stages_api_name, runner_api_name, webhooks_api_name, type DeviceMethods, type DevEvents, type PageApi } from "../../shared/page_api.ts";
 import type { DesktopMethods } from "../../shared/desktop.ts";
 import type { RemoteAccessMethods } from "../../shared/remote_access.ts";
 import type { RunnerMethods } from "../../shared/runs/runner.ts";
@@ -39,6 +40,7 @@ export async function desktop_api(): Promise<PageApi> {
     ? {
         device: desktop[device_api_name] as Client<DeviceMethods>,
         local_mcp: desktop[local_mcp_api_name] as LocalMcpClient,
+        listening: desktop[listening_api_name] as PeerListeningClient,
         remote_access: desktop[remote_access_api_name] as Client<RemoteAccessMethods>,
         daemon_is_here: true,
       }

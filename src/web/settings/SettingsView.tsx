@@ -12,7 +12,7 @@ import { PageHeading, SettingRow, SettingsPage, type SettingsCategory, type Sett
 import { Loaded } from "@x-tech-laboratories/x-libs/web/react/states";
 import { TrustedCertificates } from "@x-tech-laboratories/x-libs/web/react/certificates";
 import { ConnectionSettings } from "@x-tech-laboratories/x-libs/web/react/connections";
-import { SyncSettings } from "@x-tech-laboratories/x-libs/web/react/sync_settings";
+import { PeerListeningSettings, SyncSettings } from "@x-tech-laboratories/x-libs/web/react/sync_settings";
 
 import type { DesktopSettings } from "../../shared/desktop.ts";
 import { notice_kind_labels, notice_kinds, type NoticeKind } from "../../shared/runs/notices.ts";
@@ -127,7 +127,7 @@ function Notifications() {
 
 // Sync on a device with its own database, and backups of whichever database the page works on.
 function data_category(): SettingsCategory[] {
-  const { host, device, backups, certificates, local_mcp, desktop, connections, remote_access, notice_kinds: phone_kinds } = page();
+  const { host, device, server_sync, backups, certificates, listening, local_mcp, desktop, connections, remote_access, notice_kinds: phone_kinds } = page();
   const sections: SettingsSection[] = [
     ...(connections
       ? [{ id: "connections", heading: "Connections", hint: host === "android" ? "The X-Dev daemon this phone works on: the computer that holds the checkouts and runs the agents." : "The X-Dev daemon this window works on: This computer, or another computer that lets other devices connect.", content: <>
@@ -136,10 +136,11 @@ function data_category(): SettingsCategory[] {
       </> }]
       : []),
     ...(remote_access ? [{ id: "remote", heading: "Other devices", hint: "Let phones, browsers and other computers work on this computer's X-Dev.", content: <RemoteAccessSettings remote={remote_access} /> }] : []),
-    ...(device ? [{ id: "sync", heading: "Sync", hint: "Keep this device's data alike with your X-Dev server.", content: <>
-      <SyncSettings device={device} certificates={certificates} subscribe={data_watch.subscribe} data_name="X-Dev data" placeholder="https://dev.example.org/" />
+    ...(device ? [{ id: "sync", heading: "Sync", hint: "Keep this device's data alike with your other devices.", content: <>
+      <SyncSettings device={device} subscribe={data_watch.subscribe} data_name="X-Dev data" extra={listening && <PeerListeningSettings listening={listening} />} />
       {certificates && <TrustedCertificates certificates={certificates} />}
     </> }] : []),
+    ...(server_sync ? [{ id: "sync", heading: "Sync", hint: "Keep the server's data alike with your devices. Only an admin may pair or remove a device.", content: <SyncSettings device={server_sync} subscribe={data_watch.subscribe} data_name="X-Dev data" /> }] : []),
     ...(backups
       ? [{ id: "backups", heading: "Backups", hint: device ? "Copies of this device's data, kept beside it." : host === "web" ? "Copies of the server's data, kept in its data folder. A restore restarts the server." : "Copies of the daemon's data, kept where it runs.", content: <Backups /> }]
       : []),

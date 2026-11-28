@@ -4,6 +4,7 @@
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import type { BackupClient } from "@x-tech-laboratories/x-libs/backup_protocol";
+import type { SyncDeviceClient } from "@x-tech-laboratories/x-libs/sync_protocol";
 import type { Client } from "@x-tech-laboratories/x-libs/electron/bridge";
 import { LoginNeeded } from "@x-tech-laboratories/x-libs/web/states";
 
@@ -19,6 +20,7 @@ import type { WebhookMethods } from "../../shared/webhooks/model.ts";
 const call_path = "api/call/";
 const backup_path = "api/backup/";
 const stages_path = "api/stages/";
+const sync_device_path = "api/sync_device/";
 const runner_path = "api/runner/";
 const webhook_path = "api/github_webhook/";
 const abilities_path = "api/abilities";
@@ -109,6 +111,8 @@ export async function web_api(): Promise<PageApi> {
     calls: server_calls(),
     backups: server_backups(),
     stages: server_table<Client<StagesMethods>>(stages_path),
+    // The server's own sync, which only an admin may pair devices with.
+    server_sync: server_table<SyncDeviceClient>(sync_device_path),
     ...(abilities.runner ? { runner: server_table<Client<RunnerMethods>>(runner_path) } : {}),
     ...(abilities.webhooks ? { github_webhook: server_table<Client<WebhookMethods>>(webhook_path) } : {}),
     device: null,
