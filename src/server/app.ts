@@ -54,8 +54,7 @@ export interface AppOptions {
   runner?: RunnerMethods;
   // GitHub's webhooks: deliveries taken without a session, checked by their signature, and an admin's calls.
   webhooks?: Pick<GitHubWebhooks, "methods" | "receive">;
-  // This server's keys and paired devices, and the address they reach it at, such as "https://dev.example.org/api/";
-  // without them it syncs with no device.
+  // This server's sync keys, paired devices and the address they reach it at; without them it syncs with no device.
   sync?: { storage: PeerStorage; address: string | null };
   // The certificate and key to serve https with; plain http without them.
   https?: { cert: Buffer; key: Buffer };
