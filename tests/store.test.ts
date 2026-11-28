@@ -36,6 +36,20 @@ describe("store", () => {
     expect(bound.get_settings()).toEqual({ ...setting_defaults, "history.keep_days": 30, "board.lanes": ["repository"] });
   });
 
+  it("exports the settings set and imports them into another device, ignoring keys it does not know", () => {
+    const source_database = open_database();
+    const target_database = open_database();
+    const source = bind_methods(() => source_database, () => undefined);
+    source.set_setting("history.keep_days", 30);
+    const file = source.export_settings();
+
+    const target = bind_methods(() => target_database, () => undefined);
+    const result = target.import_settings({ ...file, settings: { ...file.settings, unknown: 1 } });
+
+    expect(file).toMatchObject({ app: "x-dev", kind: "settings", settings: { "history.keep_days": 30 } });
+    expect(result).toEqual({ changed: 1, unchanged: 0 });
+  });
+
   it("announces writes and not reads", () => {
     const database = open_database();
     const on_change = vi.fn();
