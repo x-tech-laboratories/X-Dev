@@ -140,9 +140,9 @@ describe("server", () => {
     await start();
     const stranger = await app.inject({ method: "POST", url: "/api/sync/peer", headers: { "content-type": "application/octet-stream", "x-sync-device": "NOBODY" }, payload: Buffer.alloc(64) });
     expect(stranger.statusCode).toBe(403);
-    expect((await app.inject({ method: "POST", url: "/api/sync_device/create_pairing_code", payload: [] })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/api/sync/create_pairing_code", payload: [] })).statusCode).toBe(401);
 
-    const made = await signed({ method: "POST", url: "/api/sync_device/create_pairing_code", payload: [] });
+    const made = await signed({ method: "POST", url: "/api/sync/create_pairing_code", payload: [] });
     const offer = decode_pairing_offer((made.json() as { code: string }).code);
     expect(offer).toMatchObject({ app: "x-dev", name: "X-Dev server", addresses: ["https://dev.example.org/api/"] });
   });

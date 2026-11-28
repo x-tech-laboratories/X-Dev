@@ -88,7 +88,7 @@ export async function build_app(options: AppOptions): Promise<FastifyInstance> {
   const accounts = new AccountStore({ database: options.database, app_name: "X-Dev", declared: options.declared, token_prefix: "xf" });
   const admin = { role: accounts.top_role };
   // Backups hold the accounts, stages steer agents and the runner starts them with this computer's rights: admins only.
-  const admin_only = ["/api/backup/", "/api/stages/", "/api/runner/", "/api/github_webhook/", "/api/sync_device/"];
+  const admin_only = ["/api/backup/", "/api/stages/", "/api/runner/", "/api/github_webhook/", "/api/sync/"];
   // GitHub posts without a session, and so do paired devices: a delivery's signature, or a sync call's seal, is what lets it in.
   const open_paths = [...(options.webhooks ? [webhook_path] : []), "/api/sync/peer"];
   await register_accounts(app, { accounts, cookie_name: "x_dev_session", open_paths, read_only_paths: ["/api/mcp"], needed: (_method, path) => (admin_only.some((prefix) => path.startsWith(prefix)) ? admin : "any") });
@@ -154,7 +154,7 @@ export async function build_app(options: AppOptions): Promise<FastifyInstance> {
       if (sync) {
         register_sync_peer_routes(api, sync);
         // The server's own pairing calls, which an admin makes from the page's Sync section.
-        register_call_table(api, "/sync_device", sync_device_methods(sync), { is_read_only });
+        register_call_table(api, "/sync", sync_device_methods(sync), { is_read_only });
       }
     },
     { prefix: "/api" },

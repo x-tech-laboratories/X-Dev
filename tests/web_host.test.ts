@@ -54,7 +54,7 @@ describe("the page's calls", () => {
     const api = await web_api();
 
     expect(await api.server_sync!.create_pairing_code()).toEqual({ code: "x-sync:abc", expires_at: "" });
-    expect(fetch).toHaveBeenCalledWith("api/sync_device/create_pairing_code", expect.objectContaining({ method: "POST", body: "[]" }));
+    expect(fetch).toHaveBeenCalledWith("api/sync/create_pairing_code", expect.objectContaining({ method: "POST", body: "[]" }));
   });
 
   it("reach the server's runner only when it runs agents and the user is an admin", async () => {
