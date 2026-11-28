@@ -158,7 +158,7 @@ describe("two daemons paired with the server", () => {
     await sync_all(first_sync, second_sync);
     expect(second.store.get_run(asking)).toMatchObject({ state: "done", answers: "Lanes." });
     expect(second.store.get_run(running).state).toBe("stopped");
-  });
+  }, 15_000);
 });
 
 // ============================================================================

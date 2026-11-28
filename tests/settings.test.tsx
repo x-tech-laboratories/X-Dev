@@ -55,6 +55,18 @@ describe("settings", () => {
     await waitFor(() => expect(listening.set_peer_listening).toHaveBeenCalledWith(true, 3934));
   });
 
+  it("shows an admin the server's own Sync section in a browser", async () => {
+    const server_sync = {
+      get_sync_status: vi.fn(async () => ({ ...off, addresses: ["https://dev.example.org/api/"] })),
+      create_pairing_code: vi.fn(async () => ({ code: "x-sync:server", expires_at: "2026-11-28T12:00:00Z" })),
+    } as never;
+    set_page_api({ host: "web", calls: fake_calls({}), device: null, server_sync, on_change: () => () => undefined });
+    render(<><SettingsView /><Dialogs /></>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Show pairing code" }));
+    await waitFor(() => expect(screen.getByText(/x-sync:server/)).toBeTruthy());
+  });
+
   it("shows the server's backups in a browser and takes one by hand", async () => {
     const taken = { name: "dev-2026-11-10T09-30-00Z.db", taken_at: "2026-11-10T09:30:00Z", is_automatic: false, size_bytes: 4096 };
     const backups = {

@@ -47,6 +47,16 @@ describe("the page's calls", () => {
     expect(fetch).toHaveBeenCalledWith("api/call/get_settings", expect.objectContaining({ method: "POST", body: "[]" }));
   });
 
+  it("reach the server's own sync calls, which an admin pairs devices with", async () => {
+    const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url === "api/abilities" ? {} : { code: "x-sync:abc", expires_at: "" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("EventSource", QuietEventSource);
+    const api = await web_api();
+
+    expect(await api.server_sync!.create_pairing_code()).toEqual({ code: "x-sync:abc", expires_at: "" });
+    expect(fetch).toHaveBeenCalledWith("api/sync_device/create_pairing_code", expect.objectContaining({ method: "POST", body: "[]" }));
+  });
+
   it("reach the server's runner only when it runs agents and the user is an admin", async () => {
     const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url === "api/abilities" ? { runner: true, stages: true } : "run-1"), { status: 200 }));
     vi.stubGlobal("fetch", fetch);
